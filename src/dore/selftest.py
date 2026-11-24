@@ -104,6 +104,33 @@ def s_correct(r: Run, a: Agent):
     r.ask("correct", a, "What car do I have?", "Honda", avoid="Toyota", label="after /correct")
 
 
+def s_plain_correct(r: Run, a: Agent):
+    """The user corrects in plain words (no /correct): the old fact must stop being used."""
+    a.ask("My car is a Toyota.")
+    a.ask("What car do I have?")
+    wrong_id = a.last_answer_id
+    a.ask("No, my car is a Honda.")
+    a.history.clear()
+    r.check("plain-correct", "old answer marked wrong", a.memory.get(wrong_id).trust == "wrong")
+    r.check("plain-correct", "'Toyota' no longer searchable (kept)",
+            not any("Toyota" in h.content for h in a.memory.search("my car", k=5, touch=False)))
+    r.ask("plain-correct", a, "What car do I have?", "Honda", avoid="Toyota")
+
+
+def s_reask(r: Run, a: Agent):
+    """Reactions are learned without commands: asking again lowers the notes used."""
+    a.ask("I live in Phnom Penh.")
+    note = a.memory.search("I live in Phnom Penh", k=1, touch=False)[0].id
+    a.ask("Where do I live?")
+    a.ask("Which city do I live in?")
+    r.check("reask", "asking again is noticed", a.last_signal == "reask", a.last_signal)
+    r.check("reask", "notes used lose a point", a.memory.get(note).feedback == -1,
+            f"feedback={a.memory.get(note).feedback}")
+    a.ask("What is my cat called?")
+    a.ask("What is my dog called?")
+    r.check("reask", "dog after cat is a new question", a.last_signal == "moved_on", a.last_signal)
+
+
 def s_newer_wins(r: Run, a: Agent):
     a.ask("I live in Phnom Penh.")
     a.ask("I moved to Siem Reap last week, so now I live in Siem Reap.")
@@ -163,7 +190,8 @@ def s_code(r: Run, a: Agent):
             f"passed={res.check.passed} attempts={res.attempts}")
     hits = a.memory.search("check if a string is a palindrome", k=3, min_similarity=a.min_similarity, touch=False)
     r.check("code", "lesson found for a similar task", any(h.kind == "lesson" for h in hits))
-    res2 = a.solve_code("Write f() returning 1.", tests="assert f() == 2")  # impossible
+    # Truly impossible: with only "f() == 2" the model sometimes just returns 2 and passes (2026-11-25).
+    res2 = a.solve_code("Write f() returning 1.", tests="assert f() == 1\nassert f() == 2")
     r.check("code", "failed code not saved", res2.memory_id is None)
 
 
@@ -178,6 +206,29 @@ def s_long_paste(r: Run, a: Agent):
     r.ask("long-paste", a, "What is the emergency shutdown code?", "RED-7731")
 
 
+def s_keyword(r: Run, a: Agent):
+    a.teach("Server SRV-4471 is used for nightly backups.")
+    for i in range(20):
+        a.teach(f"Server rack {i} holds web machines and network switches number {i * 7}.")
+    r.ask("keyword", a, "What is SRV-4471 used for?", "backup")
+    hits = a.memory.search("SRV-4471", k=3, min_similarity=a.min_similarity, touch=False)
+    r.check("keyword", "exact ID found first", bool(hits) and "SRV-4471" in hits[0].content,
+            f"top: {hits[0].content if hits else None}")
+
+
+def s_projects(r: Run, a: Agent):
+    a.project = "shop"
+    a.teach("The API port is 8080.")
+    a.ask("My cat is called Mochi.")
+    a.project = "blog"
+    a.teach("The API port is 9090.")
+    a.history.clear()
+    r.ask("projects", a, "What port does the API use?", "9090", avoid="8080", label="blog sees only its port")
+    r.ask("projects", a, "What is my cat called?", "Mochi", label="personal fact visible in other project")
+    a.project = "shop"
+    r.ask("projects", a, "What port does the API use?", "8080", avoid="9090", label="shop sees only its port")
+
+
 def s_never_delete(r: Run, a: Agent):
     keep = a.teach("I am allergic to penicillin.", protected=True)
     other = a.teach("I parked on level 3.")
@@ -189,10 +240,10 @@ def s_never_delete(r: Run, a: Agent):
 
 SCENARIOS = [
     ("chat", s_chat_learning), ("teach", s_teach), ("please-remember", s_please_remember),
-    ("correct", s_correct), ("newer-wins", s_newer_wins), ("newer-wins-plain", s_newer_wins_plain),
+    ("correct", s_correct), ("plain-correct", s_plain_correct), ("reask", s_reask), ("newer-wins", s_newer_wins), ("newer-wins-plain", s_newer_wins_plain),
     ("near-dup", s_near_duplicates),
     ("no-noise", s_no_noise), ("approval", s_answers_not_reused), ("persistence", s_persistence),
-    ("code", s_code), ("long-paste", s_long_paste), ("never-delete", s_never_delete),
+    ("code", s_code), ("long-paste", s_long_paste), ("keyword", s_keyword), ("projects", s_projects), ("never-delete", s_never_delete),
 ]
 
 

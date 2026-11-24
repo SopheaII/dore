@@ -54,14 +54,14 @@ def chunk_text(text: str, max_chars: int = 1200, overlap: int = 150) -> list[str
 
 
 def ingest_text(store: MemoryStore, text: str, source: str, trust: str = "unverified",
-                kind: str = "document") -> list[int]:
+                kind: str = "document", project: str = "") -> list[int]:
     chunks = chunk_text(text)
-    ids = store.add_many(chunks, kind=kind, source=source, trust=trust) if chunks else []
+    ids = store.add_many(chunks, kind=kind, source=source, trust=trust, project=project) if chunks else []
     store.save()
     return ids
 
 
-def ingest_file(store: MemoryStore, path: str | Path, trust: str = "unverified") -> list[int]:
+def ingest_file(store: MemoryStore, path: str | Path, trust: str = "unverified", project: str = "") -> list[int]:
     path = Path(path)
     text = path.read_text(encoding="utf-8", errors="replace")
-    return ingest_text(store, text, source=f"file:{path.name}", trust=trust)
+    return ingest_text(store, text, source=f"file:{path.name}", trust=trust, project=project)

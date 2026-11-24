@@ -1,6 +1,32 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
+*.pyo
 .pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Runtime data, models, memories and benchmark reports (never commit)
 data/
 reports/
+*.db
+*.db-wal
+*.db-shm
+*.faiss
+
+# Node / opencode plugin dependencies
+node_modules/
+
+# Local machine and secret files
+.env
+.env.*
+*.local
+.DS_Store
+.idea/
+.vscode/
+
+# Logs and temporary files
+*.log
+*.tmp

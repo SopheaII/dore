@@ -5,6 +5,7 @@
     python -m dore.bench embed
     python -m dore.bench memory [items]     # store speed at scale (random vectors, no model)
     python -m dore.bench remember           # auto-remember speed with the real embedder
+    python -m dore.bench scale [projects]   # can recall still find the right fact among ~10k similar ones?
 """
 
 from __future__ import annotations
@@ -171,7 +172,100 @@ def bench_remember():
         store.close()
 
 
+SERVICES = ("billing checkout auth search gateway notifications inventory reports payments shipping catalog "
+            "users sessions analytics email sms media uploads exports imports scheduler queue cache config "
+            "audit admin pricing orders invoices refunds reviews ratings recommendations feeds webhooks "
+            "ledger loyalty coupons tickets").split()
+ATTRS = [  # (fact template, question template, values)
+    ("The {s} service runs on port {v}.", "What port does {s} listen on?", [str(p) for p in range(3000, 9999, 7)]),
+    ("{s} is pinned to version {v}.", "Which version of {s} do we use?", [f"{a}.{b}.{c}" for a in range(1, 6)
+                                                                         for b in range(10) for c in range(5)]),
+    ("Requests to {s} time out after {v} seconds.", "How long is the {s} timeout?", [str(t) for t in range(5, 300, 5)]),
+    ("{s} stores its data in {v}.", "Which database does {s} use?",
+     "Postgres MySQL Redis MongoDB SQLite DynamoDB Cassandra ClickHouse Elasticsearch MariaDB".split()),
+    ("{v} owns the {s} service.", "Who is responsible for {s}?",
+     "Dara Sokha Vanna Chenda Rithy Bopha Sophal Kosal Malis Piseth Nary Visal".split()),
+    ("{s} is deployed every {v}.", "When do we deploy {s}?",
+     "Monday Tuesday Wednesday Thursday Friday morning evening night hour".split()),
+    ("{s} is hosted in the {v} region.", "Where is {s} hosted?",
+     "Singapore Tokyo Frankfurt Virginia Oregon Sydney Mumbai London".split()),
+    ("{s} retries failed calls {v} times.", "How many retries does {s} do?", [str(n) for n in range(1, 13)]),
+]
+FILLER = ["In {p} we chose {a} over {b} because it was simpler to operate.",
+          "The {s} bug in {p} was caused by a timezone mismatch in the {a} client.",
+          "Code review rule for {p}: every {s} change needs a test for the {a} path.",
+          "The {s} dashboard in {p} shows {a} latency and {b} errors."]
+WORDS = "Kafka RabbitMQ gRPC REST GraphQL Docker Kubernetes Terraform Nginx Celery Sentry Grafana".split()
+
+
+def bench_scale(args: list[str]):
+    """Hide target facts among many similar ones and measure how often recall finds them."""
+    import tempfile
+
+    from .embed import FastEmbedder
+    from .memory import MemoryStore
+
+    n_projects = int(args[0]) if args else 25
+    rng = np.random.default_rng(42)
+    projects = [f"proj{i:02d}" for i in range(n_projects)]
+    facts, truth = [], {}  # truth[(project, service, attr)] = value
+    for p in projects:
+        for s in SERVICES:
+            for ai, (ft, _, vals) in enumerate(ATTRS):
+                v = str(rng.choice(vals))
+                truth[(p, s, ai)] = v
+                facts.append((p, ft.format(s=s, v=v)))
+        for _ in range(len(SERVICES) * 2):
+            t = FILLER[rng.integers(len(FILLER))]
+            a, b = rng.choice(WORDS, 2, replace=False)
+            facts.append((p, t.format(p=p, s=rng.choice(SERVICES), a=a, b=b)))
+    cfg = Config()
+    e = FastEmbedder(cfg.embed_model, cache_dir=str(cfg.cache_dir / "fastembed"))
+    with tempfile.TemporaryDirectory(prefix="dore-scale-") as tmp:
+        store = MemoryStore(Path(tmp) / "scale.db", None, e, duplicate_threshold=1.01)
+        t = time.perf_counter()
+        for p in projects:
+            store.add_many([f for q, f in facts if q == p], trust="verified", project=p)
+        print(f"stored {len(facts):,} notes in {n_projects} projects in {time.perf_counter() - t:.0f}s")
+        keys = list(truth)
+        targets = [keys[i] for i in rng.choice(len(keys), 100, replace=False)]
+
+        def score(**kw):
+            hit1 = hit3 = 0
+            lat = []
+            for p, s, ai in targets:
+                q = ATTRS[ai][1].format(s=s)
+                t = time.perf_counter()
+                hits = store.search(q, k=3, min_similarity=0.5, touch=False,
+                                    project=p if kw.get("scoped", True) else None,
+                                    keyword=kw.get("keyword", True))
+                lat.append(time.perf_counter() - t)
+                want = ATTRS[ai][0].format(s=s, v=truth[(p, s, ai)])
+                ok = [h.content == want and h.project == p for h in hits]
+                hit1 += bool(ok[:1] and ok[0])
+                hit3 += any(ok)
+            return hit1, hit3, 1000 * float(np.median(lat))
+
+        print(f"\n| Search | Right fact 1st | Right fact in top 3 | Median time |\n|---|---|---|---|")
+        for label, kw in (("project + hybrid (default)", {}), ("project, meaning only", {"keyword": False}),
+                          ("no project filter", {"scoped": False})):
+            h1, h3, ms = score(**kw)
+            print(f"| {label} | {h1}/100 | {h3}/100 | {ms:.0f} ms |")
+        unknown = ["What is the {s} cache eviction policy?", "Which CDN serves {s} images?",
+                   "What is the SLA for {s}?", "Which font does the {s} page use?"]
+        empty = tokens = 0
+        for i in range(100):
+            q = unknown[i % 4].format(s=SERVICES[i % len(SERVICES)])
+            hits = store.search(q, k=3, min_similarity=0.5, touch=False, project=projects[i % n_projects])
+            empty += not hits
+            tokens += sum(len(h.content) for h in hits) // 4
+        print(f"\nquestions with no answer in memory: {empty}/100 returned nothing; "
+              f"~{tokens / 100:.0f} tokens of notes per question otherwise (estimate: chars/4)")
+        store.close()
+
+
 if __name__ == "__main__":
     what = sys.argv[1] if len(sys.argv) > 1 else "search"
     {"llm": lambda: bench_llm(sys.argv[2:]), "search": bench_search, "embed": bench_embed,
-     "memory": lambda: bench_memory(sys.argv[2:]), "remember": bench_remember}[what]()
+     "memory": lambda: bench_memory(sys.argv[2:]), "remember": bench_remember,
+     "scale": lambda: bench_scale(sys.argv[2:])}[what]()

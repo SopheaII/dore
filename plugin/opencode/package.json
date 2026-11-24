@@ -1,0 +1,12 @@
+{
+  "name": "opencode-dore",
+  "version": "0.1.0",
+  "description": "dore long-term memory for opencode: session notes, automatic learning, and recall/remember tools.",
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.19.6"
+  }
+}

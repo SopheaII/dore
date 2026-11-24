@@ -1,0 +1,11 @@
+{
+  "name": "dore",
+  "owner": { "name": "dore" },
+  "plugins": [
+    {
+      "name": "dore",
+      "source": "./plugin",
+      "description": "Local long-term memory for Claude Code (dore)."
+    }
+  ]
+}

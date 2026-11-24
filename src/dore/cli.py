@@ -5,6 +5,7 @@ Commands:
   /correct <text>      correct the last answer       /good  /bad     rate the last answer
   /load <file>         load a text/markdown file     /mem <query>    show matching memories
   /code <task>         solve with the code checker   /stats          memory statistics
+  /project [name]      switch project (no name: back to general); /projects lists them
   /tests               (after /code) paste tests, end with a line containing only END
   /quit
 """
@@ -63,12 +64,19 @@ def handle(agent, cmd: str, rest: str, line: str):
     elif cmd == "/load" and rest:
         from .ingest import ingest_file
         t = time.perf_counter()
-        ids = ingest_file(agent.memory, rest)
+        ids = ingest_file(agent.memory, rest, project=agent.project)
         print(f"loaded {len(ids)} chunks in {time.perf_counter() - t:.1f}s (unverified)")
     elif cmd == "/mem" and rest:
-        for m in agent.memory.search(rest or "", k=10, touch=False):
+        for m in agent.memory.search(rest, k=10, touch=False, project=agent.project or None):
             print(f"#{m.id} [{m.trust}{', protected' if m.protected else ''}] "
                   f"sim={m.similarity:.2f}  {m.content[:120]!r}")
+    elif cmd == "/project":
+        agent.project = rest
+        agent.history.clear()
+        print(f"project: {rest or '(general)'}")
+    elif cmd == "/projects":
+        for name, n in sorted(agent.memory.projects().items()):
+            print(f"{name or '(general)'}: {n} memories{'  <- current' if name == agent.project else ''}")
     elif cmd == "/stats":
         print(agent.memory.stats())
     elif cmd == "/code" and rest:
@@ -98,6 +106,7 @@ def main(argv: list[str] | None = None):
     p.add_argument("--model", help="path to a GGUF model")
     p.add_argument("--lora", help="path to a GGUF LoRA adapter")
     p.add_argument("--threads", type=int)
+    p.add_argument("--project", default="", help="start in this project (default: general)")
     args = p.parse_args(argv)
 
     cfg = Config()
@@ -111,6 +120,7 @@ def main(argv: list[str] | None = None):
         cfg.n_threads = args.threads
 
     agent = build_agent(cfg)
+    agent.project = args.project
     print(__doc__)
     try:
         while True:

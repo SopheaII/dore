@@ -1,2 +1,7 @@
 [console_scripts]
 dore = dore.cli:main
+dore-bridge = dore.bridge:main
+dore-claude = dore.claude_local:main
+dore-hook = dore.hookclient:main
+dore-server = dore.server:main
+dore-web = dore.web:main

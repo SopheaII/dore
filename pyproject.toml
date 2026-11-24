@@ -8,6 +8,7 @@ dependencies = [
     "fastembed",
     "faiss-cpu",
     "numpy",
+    "mcp>=2.3,<3",
 ]
 
 [project.optional-dependencies]
@@ -15,6 +16,11 @@ dev = ["pytest"]
 
 [project.scripts]
 dore = "dore.cli:main"
+dore-web = "dore.web:main"
+dore-server = "dore.server:main"
+dore-claude = "dore.claude_local:main"
+dore-hook = "dore.hookclient:main"
+dore-bridge = "dore.bridge:main"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -22,6 +28,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+dore = ["web_page.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
