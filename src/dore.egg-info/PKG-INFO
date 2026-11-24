@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: dore
+Version: 0.1.0
+Summary: A local AI that keeps learning from everyday use
+Requires-Python: >=3.11
+Requires-Dist: llama-cpp-python
+Requires-Dist: fastembed
+Requires-Dist: faiss-cpu
+Requires-Dist: numpy
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"

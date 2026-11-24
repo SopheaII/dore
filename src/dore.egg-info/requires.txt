@@ -1,0 +1,7 @@
+llama-cpp-python
+fastembed
+faiss-cpu
+numpy
+
+[dev]
+pytest
