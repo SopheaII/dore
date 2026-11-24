@@ -10,7 +10,8 @@ prompt, and prints nothing when nothing is worth adding.
 What the prompt hook adds (measured thresholds, bge-small; see reports/token-design.md):
 - rules of this project and general rules ("keep code Python 3.9 compatible", "max discount
   50%"): once per session, at the first prompt, because they apply to all work;
-- other notes only on a strong match (similarity >= 0.65, or an exact ID such as SRV-4471),
+- other notes only on a strong match (similarity >= 0.65 and within 0.05 of the best match, or an exact
+  ID such as SRV-4471),
   each note at most once per session. Unrelated prompts scored up to 0.62.
 """
 
@@ -29,6 +30,13 @@ from .config import Config
 from .memory import SEARCHABLE_SQL, MemoryStore, same_frame
 
 STRONG = 0.65          # prompt-to-note similarity needed to add a note
+# Only notes close to the best match: on a broad prompt many loosely related notes all score
+# 0.65-0.73 ("your name is dore" matched every prompt saying "dore"). Measured on 18 labelled
+# prompts (2026-11-25): same useful notes found (7/8), wrong extra notes 9 -> 1.
+GAP = 0.05
+# Notes about the local dore assistant itself ("your name is dore") are for dore's own chat; shown to
+# Claude they matched every prompt saying "dore" and name the wrong assistant.
+ABOUT_ASSISTANT = re.compile(r"^\s*(your\b|you are\b|you'?re\b)", re.I)
 MAX_RULES = 6
 MAX_NOTES = 3
 MAX_CHARS = 160        # per note shown
@@ -60,7 +68,11 @@ IMPERATIVE = re.compile(
 # "I need a helper that ..." is a request; "It will run on ..." only makes sense in its conversation.
 WANT = re.compile(r"^(i|we)\s*('d| would| will)?\s*(need|want|like|wanna|have to|must have)\b", re.I)
 VAGUE = re.compile(r"^(it|this|that|these|those|they|he|she|which)\b", re.I)
-FILLER = re.compile(r"^(also|and|so|but|then|ok(ay)?|hey|hi|well|btw)\b[,:]?\s*", re.I)
+FILLER = re.compile(r"^(also|and|so|but|then|ok(ay)?|hey|hi|well|btw|yes|yeah|yep|sure|i mean)\b[,:]?\s*", re.I)
+# "If not please remove", "Plesae remove the note": a request anywhere in the sentence, typos too.
+PLEASE = re.compile(r"\b(please|pleas|plese|plesae|pleae|pls|plz)\b", re.I)
+# The user pasting dore's own output back ("From dore memory: ...") is not a new fact.
+ECHO = re.compile(r"\bdore memory\b|^#\d+ \(", re.I)
 
 
 def user_facts(text: str) -> list[str]:
@@ -77,7 +89,9 @@ def user_facts(text: str) -> list[str]:
         if lead:
             sent = sent[lead.end():].rstrip("?").strip()
         elif (sent.endswith("?") or QUESTION_START.match(sent) or SMALL_TALK.match(sent)
-              or IMPERATIVE.match(sent) or WANT.match(sent) or VAGUE.match(sent)):
+              or IMPERATIVE.match(sent) or WANT.match(sent) or VAGUE.match(sent) or PLEASE.search(sent)):
+            continue
+        if ECHO.search(sent):
             continue
         if NOT_A_FACT.match(sent):
             continue
@@ -136,7 +150,11 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
             shown.add(i)
     hits = store.search(prompt[:2000], k=MAX_NOTES + len(shown), min_similarity=STRONG,
                         project=project or None, touch=False)
-    notes = [m for m in hits if m.id not in shown and m.trust != "wrong"][:MAX_NOTES]
+    hits = [m for m in hits if m.trust != "wrong" and not ABOUT_ASSISTANT.match(m.content)]
+    if hits:  # keep notes near the best match; a note below STRONG got in by an exact ID/keywords
+        top = max(m.similarity for m in hits)
+        hits = [m for m in hits if m.similarity >= top - GAP or m.similarity < STRONG]
+    notes = [m for m in hits if m.id not in shown][:MAX_NOTES]
     if not notes and project:  # nothing here: a very strong match from another project may help
         notes = [m for m in store.search(prompt[:2000], k=2, min_similarity=0.75, touch=False)
                  if m.id not in shown and m.project not in (project, "")][:1]

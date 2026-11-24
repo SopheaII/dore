@@ -26,6 +26,39 @@ def test_user_facts_keeps_decisions_drops_requests():
         "Our staging server runs on port 8443."]
 
 
+def test_user_facts_drops_replies_requests_and_echoes():
+    # Real messages that were stored as verified facts (2026-11-25).
+    assert user_facts("If not please remove") == []
+    assert user_facts("Plesae remove research note or anything that related to my personal computer spec") == []
+    assert user_facts("Yes pleas and on real clause plugin it will be no add to claude md on project") == []
+    assert user_facts('From dore memory: "my friend name is King" (saved 2026-11-24).') == []
+    assert user_facts("I mean it still use llm but this project keeps learning over time") == []
+    assert user_facts("Yes, our API runs on port 9090.") == ["Our API runs on port 9090."]
+
+
+def test_only_notes_near_the_best_match(tmp_path):
+    class Fixed:  # cosine similarity to the query = the number given per text
+        dim = 2
+        sims = {"q": 1.0, "best note": 0.85, "close note": 0.82, "loose note": 0.70}
+
+        def embed(self, texts):
+            import numpy as np
+            return np.array([[s, (1 - s * s) ** 0.5 * (1 if i % 2 else -1)]
+                             for i, s in enumerate(self.sims[t] for t in texts)], dtype="float32")
+
+    s = MemoryStore(tmp_path / "g.db", None, Fixed())
+    for t in ("best note", "close note", "loose note"):
+        s.add(t, trust="verified", project="p")
+    out = prompt_context(s, "q", "p", _State(tmp_path, "g"))
+    assert "best note" in out and "loose note" not in out
+
+
+def test_notes_about_the_local_assistant_not_shown_to_claude(tmp_path):
+    s = make(tmp_path)
+    s.add("your name is dore", trust="verified")
+    assert prompt_context(s, "your name is dore", "p", _State(tmp_path, "a")) == ""
+
+
 def test_scope_org_and_personal_facts_are_general():
     assert scope_for("Our production server is still on python 3.9", "shop") == ""
     assert scope_for("My editor is neovim", "shop") == ""
