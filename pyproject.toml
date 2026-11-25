@@ -8,6 +8,9 @@ dependencies = [
     "fastembed",
     "faiss-cpu",
     "numpy",
+    # Sentence grammar for what to learn (learn/grammar.py); optional at runtime: without it the word rules run.
+    "spacy>=3.8,<3.9",
+    "en_core_web_md @ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl",
     "mcp>=2.3,<3",
 ]
 
@@ -15,22 +18,24 @@ dependencies = [
 dev = ["pytest"]
 
 [project.scripts]
-dore = "dore.cli:main"
-dore-web = "dore.web:main"
-dore-server = "dore.server:main"
-dore-claude = "dore.claude_local:main"
-dore-hook = "dore.hookclient:main"
-dore-bridge = "dore.bridge:main"
+dore = "dore.apps.cli:main"
+dore-web = "dore.apps.web:main"
+dore-server = "dore.integrations.server:main"
+dore-claude = "dore.integrations.claude_local:main"
+dore-hook = "dore.integrations.hookclient:main"
+dore-bridge = "dore.integrations.bridge:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+# src/ is the `dore` package itself (no src/dore/ folder), like a Rust crate's src/.
+[tool.setuptools]
+package-dir = {"dore" = "src"}
+packages = ["dore", "dore.memory", "dore.learn", "dore.assistant", "dore.integrations", "dore.apps", "dore.eval"]
 
 [tool.setuptools.package-data]
-dore = ["web_page.html"]
+"dore.apps" = ["web_page.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

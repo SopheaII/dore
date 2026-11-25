@@ -1,8 +1,0 @@
-llama-cpp-python
-fastembed
-faiss-cpu
-numpy
-mcp<3,>=2.3
-
-[dev]
-pytest

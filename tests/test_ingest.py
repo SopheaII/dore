@@ -1,4 +1,4 @@
-from dore.ingest import chunk_text
+from dore.memory.ingest import chunk_text
 
 
 def test_chunking_respects_size():

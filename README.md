@@ -12,7 +12,7 @@ Inspired by how the brain splits learning between a fast store (hippocampus) and
 | Checkers | Python sandbox, maths evaluator | Decide what counts as `verified` |
 | Memory server | One process shared by Claude Code and other agents (MCP) | Facts from every connected tool |
 
-See [`PLAN.md`](PLAN.md) for the roadmap and design rules.
+See [`AGENTS.md`](AGENTS.md) for the roadmap and design rules.
 
 dore is not a new invention: it combines ideas from Voyager, Letta, SEAL, Google's Nested Learning, the Tiny Recursive Model, SLIDE, RAG, LoRA and the neuroscience of memory. See [`REFERENCES.md`](REFERENCES.md) for what comes from where.
 
@@ -102,8 +102,8 @@ Search is **hybrid**: meaning (FAISS) plus exact keywords (SQLite FTS5), so code
 
 ## Use dore's memory from Claude Code (plugin)
 
-Install once; after that every Claude Code session starts its own small dore process (0.8 s, ~290 MB) and
-stops it at the end. Nothing to keep running. All sessions share the same `data/memory.db`, so a fact saved
+Install once; the plugin is hooks only (no MCP server, no tools in Claude's prompt). A small warm helper
+answers the hooks and quits after 30 idle minutes. Nothing to keep running. All sessions share the same `data/memory.db`, so a fact saved
 in one session is found in the next, and two sessions open at the same time see each other's notes.
 
 ```bash
@@ -117,21 +117,20 @@ What the plugin adds to Claude Code, designed to spend as few tokens as possible
 
 | Part | When | Cost |
 |---|---|---|
-| Instructions + 3 tool names (`recall`, `remember`, `correct`) | every request | ~200 tokens (measured) |
 | **Prompt hook**: adds this project's rules once per session, and other notes only when they strongly match the prompt (never the same note twice) | before each prompt, runs locally (~0.2–1 s) | 0 tokens when nothing matches; ~55 per note added |
 | **Session-end hook**: saves the facts *you* stated (decisions, settings, preferences) from the session log; requests, questions and small talk are skipped | when a session ends, locally | 0 Claude tokens |
-| `remember` / `recall` tools | only when Claude needs them (its own findings, older context) | one round trip each |
 
 Facts about you ("my…") and the organisation ("our production server…") are general and reach every
 project; other facts stay in their project. Measured on a real 6-session test: same or better answers than
 Claude Code alone, 23 instead of 30 requests, 3% cheaper (`reports/token-design.md`).
 
-`ask_local` (run the local 1B/3B model) is off by default; start the server with `--local-models` to offer it.
-Other agents that need a network connection can use the shared HTTP server: `.venv/bin/dore-server`
-(http://127.0.0.1:8765/mcp).
+The plugin has no MCP server (removed 2026-11-25: ~200 tokens per request and a slow start, while the hooks
+already do the learning). So Claude can't search or save memory on its own; only your messages are learned.
+To give an agent the tools anyway (`recall`, `remember`, `correct`; `ask_local` with `--local-models`), run
+`.venv/bin/dore-server` (HTTP, http://127.0.0.1:8765/mcp) or add `dore-server --stdio` to its MCP config.
 
 After changing files in `plugin/`, raise its version and run `claude plugin marketplace update dore` and
-`claude plugin update dore@dore`. Python changes in `src/dore/` apply to new sessions automatically.
+`claude plugin update dore@dore`. Python changes in `src/` apply to new sessions automatically.
 
 ## Run Claude Code on a local model (experimental)
 
@@ -144,27 +143,28 @@ Needs Ollama 0.14+. Much slower and weaker than Claude; see `reports/claude-loca
 
 ## Project layout
 
+Organised in layers; `src/` is the `dore` package itself.
+
 ```
-dore/
-├── src/dore/          # the package
-│   ├── config.py      # paths and settings
-│   ├── core.py        # llama.cpp model wrapper
-│   ├── embed.py       # text embeddings (fastembed / test embedder)
-│   ├── memory.py      # fast memory: SQLite records + FAISS index
-│   ├── ingest.py      # document chunking and loading
-│   ├── checkers.py    # Python sandbox + maths checker
-│   ├── agent.py       # answering, thinking loop, learning from use
-│   ├── bench.py       # benchmarks (results → reports/)
-│   └── cli.py         # interactive chat
-│   └── web.py         # browser chat (model picker + same memory)
-├── tests/             # pytest suite (runs without a model)
-├── reports/           # git-ignored: benchmark/test reports (machine-specific)
-├── exams/             # exam sets (Phase 5)
-├── data/              # models, memory DB, adapters (git-ignored)
-├── pyproject.toml
-├── PLAN.md
-└── CLAUDE.md
+src/                       # the `dore` package itself (pyproject: package-dir = {"dore" = "src"})
+├── __init__.py            # public API, loaded lazily (dore.MemoryStore, dore.Agent, dore.Config)
+├── config.py              # paths and settings
+├── memory/                # 1. fast memory, no model
+│   ├── types.py           #    Memory record, trust levels, what search may return
+│   ├── schema.py          #    SQLite tables + FTS5 keyword index
+│   ├── rules.py           #    duplicates, same fact with one detail changed, which note replaces which
+│   ├── store.py           #    MemoryStore: add, merge, replace, hybrid search, feedback, archive
+│   ├── embed.py           #    embedders (fastembed; HashEmbedder for tests)
+│   └── ingest.py          #    documents -> chunks
+├── learn/                 # 2. what to learn from a message, no model
+│   └── statements.py      #    split_statements, user_facts, scope_for, question/correction rules
+├── assistant/             # 3. local LLM chat: core.py (llama.cpp), agent.py, checkers.py
+├── integrations/          # 4. Claude Code & other agents: hooks, hookd, hookclient, bridge, server, claude_local
+├── apps/                  # 5. cli.py, web.py (+ web_page.html)
+└── eval/                  # bench.py, selftest.py
 ```
+
+Also: `tests/` (pytest, no model needed), `plugin/` (Claude Code plugin, hooks only), `reports/` and `data/` (git-ignored).
 
 ## Where learned data is stored
 
@@ -194,11 +194,11 @@ Nothing is ever hard-deleted; low-value items are archived (Phase 4).
 
 ```bash
 .venv/bin/pytest                             # 19 unit tests, no model needed, ~2 s
-.venv/bin/python -m dore.bench llm           # model speed (tokens/s, RAM)
-.venv/bin/python -m dore.bench search        # vector search at 10k / 100k / 1M items
-.venv/bin/python -m dore.bench embed         # embedding speed
-.venv/bin/python -m dore.bench memory 100000 # memory store at scale (add, search, save, restart)
-.venv/bin/python -m dore.bench remember      # auto-remember speed with the real embedder
+.venv/bin/python -m dore.eval.bench llm           # model speed (tokens/s, RAM)
+.venv/bin/python -m dore.eval.bench search        # vector search at 10k / 100k / 1M items
+.venv/bin/python -m dore.eval.bench embed         # embedding speed
+.venv/bin/python -m dore.eval.bench memory 100000 # memory store at scale (add, search, save, restart)
+.venv/bin/python -m dore.eval.bench remember      # auto-remember speed with the real embedder
 ```
 
 Save benchmark results in `reports/` (git-ignored, since they describe one machine).

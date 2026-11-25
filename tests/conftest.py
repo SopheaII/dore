@@ -1,7 +1,7 @@
 import pytest
 
-from dore.agent import Agent
-from dore.embed import HashEmbedder
+from dore.assistant.agent import Agent
+from dore.memory.embed import HashEmbedder
 from dore.memory import MemoryStore
 
 

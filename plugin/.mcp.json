@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "dore": {
-      "type": "stdio",
-      "command": "sh",
-      "args": ["-c", "exec \"${DORE_HOME:-$HOME/Documents/dore}/.venv/bin/dore-server\" --stdio"]
-    }
-  }
-}

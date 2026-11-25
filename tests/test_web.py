@@ -4,9 +4,9 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 
 from dore.config import Config
-from dore.embed import HashEmbedder
+from dore.memory.embed import HashEmbedder
 from dore.memory import MemoryStore
-from dore.web import Handler, ModelHub, WebApp, discover_models
+from dore.apps.web import Handler, ModelHub, WebApp, discover_models
 
 
 class FakeCore:

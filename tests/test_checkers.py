@@ -1,4 +1,4 @@
-from dore.checkers import check_math, extract_code, run_python, safe_eval
+from dore.assistant.checkers import check_math, extract_code, run_python, safe_eval
 
 
 def test_extract_code_takes_last_block():

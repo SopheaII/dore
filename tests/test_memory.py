@@ -1,6 +1,6 @@
 import pytest
 
-from dore.embed import HashEmbedder
+from dore.memory.embed import HashEmbedder
 from dore.memory import MemoryStore
 
 
@@ -285,7 +285,7 @@ def test_replaces_rule():
     assert replaces("My car is a Toyota", "My car is a Honda")
     assert replaces("Use tabs for indentation", "Do not use tabs for indentation")
     assert not replaces("I have a dog called Buddy", "I have a dog called Max")
-    assert not replaces("My friend name is King", "My friend name is Dara")
+    assert not replaces("My friend name is Alex", "My friend name is Sam")
     assert not replaces("I bought my car in 2020", "My car is a Honda")
 
 
@@ -321,3 +321,42 @@ def test_feedback_reorders_close_notes_but_cannot_lift_unrelated(store):
     c = store.add("quantum chromodynamics lecture notes", trust="verified")
     store.feedback(c, 100)
     assert c not in [h.id for h in store.search("team lunch", k=3, min_similarity=0.3, touch=False)]
+
+
+def test_replaces_ignores_time_words_and_reasons():
+    """Long-conversation test (2026-11-25): "now" and a reason clause hid real updates."""
+    from dore.memory import replaces
+    assert replaces("Our staging server runs on port 8443.", "Our staging server now runs on port 9443.")
+    assert replaces("I live in Phnom Penh.", "I currently live in Siem Reap.")
+    assert replaces("My manager is Sok.", "My manager is now Dara.")
+    assert replaces("Finance decided the max discount is 50% because anything higher loses money.",
+                    "The max discount is 40%, finance changed it.")
+    assert replaces("The team agreed that the release day is Friday.", "The release day is Monday.")
+    assert replaces("Our API runs on port 8080, which nginx proxies.", "Our API runs on port 9090.")
+    # still kept apart
+    assert not replaces("I have a dog called Buddy.", "I have a dog called Max now.")
+    assert not replaces("We run Ubuntu 22, and we use Postgres 15.", "We use Postgres 16.")  # not the main clause
+    assert not replaces("I bought my car in 2020.", "My car is now a Honda.")
+    assert not replaces("My car is a Toyota.", "My car is now a Toyota.")  # a repeat
+    assert not replaces("Finance decided the max discount is 50% because shipping costs money.",
+                        "Finance decided we use Stripe.")
+
+
+def test_a_different_subject_is_not_an_update():
+    from dore.memory import replaces
+    assert not replaces("Piseth works on the mobile team.", "Sophal works on the mobile team.")
+    assert not replaces("Stripe handles payments.", "Adyen handles payments.")  # unclear: keep both
+    assert replaces("Sok works on the web team.", "Sok works on the data team now.")
+    assert replaces("Use tabs for indentation", "Do not use tabs for indentation")
+
+
+def test_notes_saved_together_do_not_replace_each_other(tmp_path):
+    s = MemoryStore(tmp_path / "b.db", None, HashEmbedder())
+    a, b = s.add_many(["Our staging server runs on port 8443", "Our staging server runs on port 9443"], trust="verified", supersede=True)
+    assert s.get(a).replaced_by == b and s.get(b).replaced_by is None
+
+
+def test_project_update_replaces_a_general_note(store):
+    old = store.add("Our staging server runs on port 8443", trust="verified", project="")
+    new, = store.add_many(["Our staging server runs on port 9443"], trust="verified", project="shop", supersede=True)
+    assert store.get(old).replaced_by == new

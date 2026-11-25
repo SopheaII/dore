@@ -1,9 +1,9 @@
 import anyio
 from mcp.client.client import Client
 
-from dore.embed import HashEmbedder
+from dore.memory.embed import HashEmbedder
 from dore.memory import MemoryStore
-from dore.server import LocalModels, build_server, find_models
+from dore.integrations.server import LocalModels, build_server, find_models
 
 
 def text(result):
@@ -118,7 +118,7 @@ def test_find_models_names_by_size(tmp_path):
 
 
 def test_default_project_and_personal_facts(tmp_path):
-    from dore.server import session_brief
+    from dore.integrations.server import session_brief
     store = make_store(tmp_path)
 
     async def fn(_):

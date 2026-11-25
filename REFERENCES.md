@@ -70,4 +70,5 @@ Background reading used while designing dore: "How the Human Brain Works: From G
 | [FAISS](https://github.com/facebookresearch/faiss) (Meta) | Vector search | MIT |
 | [fastembed](https://github.com/qdrant/fastembed) (Qdrant) + [bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) (BAAI) | Text embeddings | Apache-2.0 / MIT |
 | SQLite | Memory records | Public domain |
+| [spaCy](https://spacy.io/) + [en_core_web_md](https://spacy.io/models/en#en_core_web_md) (Explosion) | Sentence grammar: what is a lasting fact (`learn/grammar.py`) | MIT |
 | PyTorch + PEFT *(Phase 5)* | LoRA training | BSD / Apache-2.0 |

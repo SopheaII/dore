@@ -1,0 +1,201 @@
+"""What to learn from a user's message (rules only, no model).
+
+- `split_statements`: statements in a chat message (dore's own chat, `assistant.agent`);
+- `user_facts` / `message_facts`: durable facts in a coding prompt (Claude Code hooks, bridge);
+- `scope_for`: general fact (about the user or the organisation) or one project's fact;
+- question, correction ("No, ..."), request and feedback rules shared by both.
+"""
+
+from __future__ import annotations
+
+import re
+
+PERSONAL = re.compile(r"\b(my|me|mine|i|i'm|am i|do i)\b", re.I)
+
+QUESTION_START = re.compile(
+    r"^(what|who|whom|whose|where|when|why|how|which|is|are|am|do|does|did|can|could|will|would|should|"
+    r"tell me|please|explain|write|show|give|list)\b", re.I)
+# "Please remember that X" / "Can you note: X" / "FYI X" -> X is a statement to store.
+MEMORY_LEAD_IN = re.compile(
+    r"^(?:(?:can|could|would|will) you\s+)?(?:please\s+)?(?:remember|note|keep in mind|don'?t forget|"
+    r"do not forget|save)(?:\s+that)?\s*[:,]?\s+|^(?:fyi|just so you know|for your information|btw|by the way)"
+    r"\s*[:,]?\s+", re.I)
+# Small talk is not a fact about the user.
+SMALL_TALK = re.compile(
+    r"^(hi|hello|hey|thanks|thank you|thx|ok|okay|sorry|bye|goodbye|good (morning|afternoon|evening|night))\b", re.I)
+# Requests: an imperative verb followed by its object ("Summarize the text", "Help me ..."),
+# so nouns like "Help desk number is 555" still count as statements.
+REQUEST = re.compile(
+    r"^(summari[sz]e|translate|help|make|create|fix|find|check|calculate|compute|generate|draft|describe|"
+    r"compare|rewrite|continue|try|run|open|read|search|look|send|remind|let'?s)\s+"
+    r"(me|us|the|this|that|these|those|a|an|my|our|it|following|up|out|at|for)\b", re.I)
+# "please add this to memory", "remove file path please": commands to change memory, not facts.
+# Not facts: system text ("[Request interrupted by user]"), commands ("/teach ..."), markup, and
+# hypotheticals or play ("If I were rich...", "Pretend my name is Bob"), seen stored as verified
+# in a probe (2026-11-25).
+NOT_A_FACT = re.compile(
+    r"^[\[/<{]|^(?:if (?:i|we) (?:were|was|had|could)|imagine|pretend|suppose|what if|let'?s say|say that|"
+    r"hypothetically|just kidding|jk|lol|haha)\b", re.I)
+# "No, it's a Honda" / "Actually, I live in Siem Reap" / "That's wrong: ...": a correction of the
+# last answer in plain words (the user doesn't type /correct). The rest of the message is the fix.
+CORRECTION_LEAD = re.compile(
+    r"^(?:no+|nope|nah|wrong|incorrect|not quite|not really|actually|in fact|"
+    r"that'?s (?:not (?:right|true|correct)|wrong|incorrect)|that is (?:not (?:right|true|correct)|wrong|incorrect)|"
+    r"you'?re wrong|you are wrong)\b[\s,.!:;-]*", re.I)
+MEMORY_REQUEST = re.compile(
+    r"^(?:please\s+)?(?:add|save|store|remove|delete|forget|erase|clear|update|change|edit|ignore)\b"
+    r"|\bplease\s+(?:add|save|store|remove|delete|forget|erase|clear|update|change|edit|ignore)\b", re.I)
+
+# Feedback weights: what the user says outright counts more than what dore guesses from behaviour.
+EXPLICIT_FEEDBACK = 3   # /good, /bad
+IMPLICIT_FEEDBACK = 1   # asked again (-), moved on (+)
+# Asked the same thing again = the last answer didn't help. Measured (bge-small, 2026-11-25):
+# re-asks 0.79-0.97 ("Where do I live?" / "Which city do I live in?" 0.90); different questions
+# 0.53-0.84, the high ones being one-detail changes (dog/cat 0.82, api/database port 0.84),
+# which `same_frame` excludes. "What is my job?" / "What do I do for work?" (0.79) is missed.
+REASK_SIMILARITY = 0.8
+
+SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+
+# A longer message is a paste (an article, a log), not statements about the user's work:
+# 11 sentences of a pasted report were stored as verified user facts (real DB, 2026-11-25).
+MAX_MSG_CHARS = 3000
+MAX_MSG_FACTS = 20
+
+# Facts about the organisation rather than one project ("our production server ...").
+ORG = re.compile(r"\ball our \w+|\b(our) (production|prod|staging|server|servers|team|company|infra|infrastructure|"
+                 r"ci|cluster|database server)\b|\ball (our )?projects\b|\bevery project\b|\bwe (always|never)\b",
+                 re.I)
+
+# Coding instructions are requests, not facts ("add tests", "fix the bug ...").
+IMPERATIVE = re.compile(
+    r"^(add|create|make|fix|write|implement|update|remove|delete|rename|refactor|change|move|run|test|check|"
+    r"build|install|deploy|start|stop|set|put|show|explain|give|list|try|help|let'?s|please|can|could|would|"
+    r"look|find|search|open|read|replace|convert|generate|split|merge|clean|format|debug|print|return|call|"
+    r"push|commit|review|summari[sz]e|translate|describe|compare|continue|go|do|see|tell|reply|answer|respond|say|output|answer)\b", re.I)
+# "I need a helper that ..." is a request; "It will run on ..." only makes sense in its conversation.
+WANT = re.compile(r"^(i|we)\s*('d| would| will)?\s*(need|want|like|wanna|have to|must have)\b", re.I)
+VAGUE = re.compile(r"^(it|this|that|these|those|they|he|she|which)\b", re.I)
+FILLER = re.compile(r"^(also|and|so|but|then|ok(ay)?|hey|hi|well|btw|yes|yeah|yep|sure)\b[,:]?\s*", re.I)
+# "If not please remove", "Plesae remove the note": a request anywhere in the sentence, typos too.
+PLEASE = re.compile(r"\b(please|pleas|plese|plesae|pleae|pls|plz)\b", re.I)
+# Shapes of pasted output, code and lists (not words): bullets, numbered steps, headings, quotes,
+# shell prompts, indented lines, stack frames, file:line references, column layouts, status symbols.
+STRUCTURED = re.compile(
+    r"^\s*(?:[-*•●◦▪>#|]|\d+[.)]\s|\$\s|-->)|^\s{2,}\S|\*\*|\bFile \"|^\s*at \S+[.(]|"
+    r"\w+\.\w{1,5}:\d+|\S\s{3,}\S+\s{3,}\S|[\u2700-\u27bf\u2600-\u26ff\U0001F300-\U0001FAFF]")
+# <pasted_content id=..>...</pasted_content id=..>, <task-notification>...</task-notification>, ...
+TAG_BLOCK = re.compile(r"<([a-z][\w-]*)\b[^>]*>.*?</\1\b[^>]*>", re.S | re.I)
+COMPACT_SUMMARY = re.compile(r"^This session is being continued from a previous conversation", re.I)
+# The user pasting dore's own output back ("From dore memory: ...") is not a new fact.
+ECHO = re.compile(r"\bdore memory\b|^#\d+ \(", re.I)
+
+
+def split_statements(text: str) -> list[str]:
+    """Sentences of `text` that state something (not questions, at least 3 words)."""
+    out = []
+    for sent in SENTENCE_SPLIT.split(text.strip()):
+        sent = re.sub(r"^[-*•]\s+", "", sent.strip())
+        lead = MEMORY_LEAD_IN.match(sent)
+        if lead:  # an explicit "remember that ...": keep the statement, even in question form
+            sent = sent[lead.end():].rstrip("?").strip()
+            sent = sent[:1].upper() + sent[1:]
+        elif (sent.endswith("?") or QUESTION_START.match(sent) or SMALL_TALK.match(sent)
+              or REQUEST.match(sent) or MEMORY_REQUEST.search(sent)):
+            continue
+        if NOT_A_FACT.match(sent):
+            continue
+        if len(sent.split()) >= 3:
+            out.append(sent)
+    return out
+
+
+def user_facts(text: str) -> list[str]:
+    """Durable statements in a coding prompt: no requests, questions, small talk or code.
+    With the parser installed, `grammar.fact_text` decides by sentence structure (any wording);
+    otherwise the word rules below are used."""
+    from dore.learn.grammar import fact_text, has_detail, nlp
+    out = []
+    for sent in SENTENCE_SPLIT.split(text.strip()):
+        sent = sent.strip()
+        if structured_line(sent):
+            continue
+        while FILLER.match(sent):
+            sent = FILLER.sub("", sent, count=1).strip()
+        fix = CORRECTION_LEAD.match(sent)  # "No, the API uses port 9090" -> "The API uses port 9090"
+        if fix and sent[fix.end():].strip():
+            sent = sent[fix.end():].strip()
+        lead = MEMORY_LEAD_IN.match(sent)
+        if lead:
+            sent = sent[lead.end():].rstrip("?").strip()
+        elif sent.endswith("?"):
+            continue
+        else:
+            parsed = fact_text(sent)
+            if parsed is not None:
+                if not parsed:
+                    continue
+                sent = parsed
+            elif nlp() is not None and not has_detail(sent):
+                continue  # the parser couldn't read it: keep it only if it names something concrete
+            elif (QUESTION_START.match(sent) or SMALL_TALK.match(sent) or IMPERATIVE.match(sent)
+                  or WANT.match(sent) or VAGUE.match(sent) or PLEASE.search(sent)):
+                continue
+        if ECHO.search(sent):
+            continue
+        if NOT_A_FACT.match(sent):
+            continue
+        n = len(sent.split())
+        # 3 words are enough when one names something concrete ("tests use vitest", "my name dara").
+        if n > 60 or n < 3 or (n == 3 and not (has_detail(sent) or any(c.isdigit() for c in sent)
+                                                 or re.search(r"\b[A-Z][a-z]+\b", sent[1:]))) \
+                or (n == 3 and nlp() is None) or "```" in sent or sent.count("(") > 2:
+            continue
+        out.append(sent[:1].upper() + sent[1:])
+    return out
+
+
+def scope_for(text: str, project: str) -> str:
+    """"" (general) for facts about the user or the whole organisation, else the project.
+    With the parser: by the sentence's subject (`grammar.about_user`), so "I set the dev server
+    to port 3001" stays in the project; without it: any "I/my/me" makes it general."""
+    from dore.learn.grammar import about_user
+    if ORG.search(text):
+        return ""
+    mine = about_user(text)
+    if mine is None:
+        mine = bool(PERSONAL.search(text))
+    return "" if mine else project
+
+
+def structured_line(line: str) -> bool:
+    """A line shaped like output, code or a list rather than typed chat (any language)."""
+    t = line.rstrip()
+    if not t.strip():
+        return False
+    if STRUCTURED.search(t) or len(re.findall(r"`[^`]+`", t)) >= 2 or len(re.findall(r"\w+=\S+", t)) >= 2:
+        return True
+    if len(re.findall(r"\b[A-Z]{2,}\b", t)) >= 3:  # SQL, log levels, headings
+        return True
+    if "&&" in t or "||" in t or " | " in t or re.match(r"^\s*[\w./-]+: [\w./ -]+: ", t):  # shell, "bash: x: not found"
+        return True
+    if re.search(r"[·▎│┃•►▶]", t):  # UI separators and quote bars
+        return True
+    symbols = sum(t.count(c) for c in "{}[]();=<>$|\\")
+    return symbols / len(t) > 0.08
+
+
+def message_facts(msg: str) -> list[str]:
+    """Facts in one user message; none for a paste (an article, a log, the assistant's output).
+    Tagged blocks (<pasted_content>, <task-notification>, ...) are not the user's words; a message
+    of 3+ lines is a paste, whatever its words."""
+    if len(msg) > MAX_MSG_CHARS:
+        return []
+    text = TAG_BLOCK.sub(" ", msg).strip()
+    if text.startswith("<") or COMPACT_SUMMARY.match(text):
+        return []
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if len(lines) >= 3 or (len(lines) == 2 and any(structured_line(ln) for ln in lines)):
+        return []
+    found = user_facts("\n".join(ln for ln in lines if not structured_line(ln)))
+    return found if len(found) <= MAX_MSG_FACTS else []

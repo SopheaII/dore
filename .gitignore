@@ -30,3 +30,6 @@ node_modules/
 # Logs and temporary files
 *.log
 *.tmp
+
+# Claude Code personal settings
+.claude/settings.local.json

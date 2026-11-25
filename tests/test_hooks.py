@@ -1,7 +1,8 @@
 import json
 
-from dore.embed import HashEmbedder
-from dore.hooks import _State, prompt_context, save_session, scope_for, user_facts
+from dore.memory.embed import HashEmbedder
+from dore.integrations.hooks import _State, prompt_context, save_session
+from dore.learn.statements import scope_for, user_facts
 from dore.memory import MemoryStore
 
 S1 = ("hey, can you add discount codes to the cart? add apply_discount(cart, code) that returns the discounted "
@@ -27,12 +28,12 @@ def test_user_facts_keeps_decisions_drops_requests():
 
 
 def test_user_facts_drops_replies_requests_and_echoes():
-    # Real messages that were stored as verified facts (2026-11-25).
+    # Kinds of message that were stored as verified facts (2026-11-25), reworded.
     assert user_facts("If not please remove") == []
-    assert user_facts("Plesae remove research note or anything that related to my personal computer spec") == []
-    assert user_facts("Yes pleas and on real clause plugin it will be no add to claude md on project") == []
-    assert user_facts('From dore memory: "my friend name is King" (saved 2026-11-24).') == []
-    assert user_facts("I mean it still use llm but this project keeps learning over time") == []
+    assert user_facts("Plesae remove the old note or anything that related to the build server") == []
+    assert user_facts("Yes pleas and on the editor plugin it will be no add to the readme on project") == []
+    assert user_facts('From dore memory: "my friend name is Alex" (saved 2026-11-24).') == []
+    assert user_facts("I mean it still use the model but this tool keeps learning over time") == []
     assert user_facts("Yes, our API runs on port 9090.") == ["Our API runs on port 9090."]
 
 
@@ -131,8 +132,8 @@ def test_warm_helper_answers_and_client_falls_back(tmp_path):
     import threading
     import time
     from dore.config import Config
-    from dore.hookclient import SOCKET_NAME, ask_helper
-    from dore.hookd import serve
+    from dore.integrations.hookclient import SOCKET_NAME, ask_helper
+    from dore.integrations.hookd import serve
 
     cfg = Config(data_dir=tmp_path)
     sock = str(tmp_path / SOCKET_NAME)
@@ -156,7 +157,7 @@ def test_warm_helper_answers_and_client_falls_back(tmp_path):
 
 
 def test_prompt_hook_learns_right_away_and_never_echoes_it(tmp_path):
-    from dore.hooks import on_prompt
+    from dore.integrations.hooks import on_prompt
     s = make(tmp_path)
     st = _State(tmp_path, "live")
     out = on_prompt(s, "fyi our staging server runs on port 8443. add a health check", "shop", st)
@@ -165,7 +166,7 @@ def test_prompt_hook_learns_right_away_and_never_echoes_it(tmp_path):
 
 
 def test_plain_correction_in_claude_code_replaces_and_demotes(tmp_path):
-    from dore.hooks import on_prompt
+    from dore.integrations.hooks import on_prompt
     s = make(tmp_path)
     s.duplicate_threshold = 1.01
     old = s.add("The api server uses port 8080 in production", trust="verified", project="shop")
@@ -179,7 +180,7 @@ def test_plain_correction_in_claude_code_replaces_and_demotes(tmp_path):
 
 
 def test_reask_in_claude_code_lowers_the_notes_shown(tmp_path):
-    from dore.hooks import on_prompt
+    from dore.integrations.hooks import on_prompt
     s = make(tmp_path)
     note = s.add("the images live in bucket shop-assets", trust="verified", project="shop")
     st = _State(tmp_path, "re")
@@ -190,7 +191,7 @@ def test_reask_in_claude_code_lowers_the_notes_shown(tmp_path):
 
 
 def test_prompt_output_is_capped(tmp_path):
-    from dore.hooks import MAX_TOTAL_CHARS
+    from dore.integrations.hooks import MAX_TOTAL_CHARS
     s = make(tmp_path)
     for i in range(6):
         s.add(f"rule {i}: always keep the code python 3.9 compatible " + "and tidy " * 15, trust="verified")
@@ -200,7 +201,7 @@ def test_prompt_output_is_capped(tmp_path):
 
 
 def test_session_end_skips_what_the_prompt_hook_learned(tmp_path):
-    from dore.hooks import message_key
+    from dore.integrations.hooks import message_key
     s = make(tmp_path)
     msg = "Our staging server runs on port 8443."
     s.add(msg, source="user", trust="verified")
@@ -208,3 +209,31 @@ def test_session_end_skips_what_the_prompt_hook_learned(tmp_path):
     log.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": msg}}))
     save_session(s, log, "shop", learned={message_key(msg)})
     assert s.get(1).times_seen == 1
+
+
+def test_first_prompt_on_a_fresh_install_creates_the_db_and_learns(tmp_path, monkeypatch):
+    # The plugin has no MCP server, so nothing else creates memory.db: the hook must.
+    import dore.integrations.hooks as hooks
+    monkeypatch.setattr(hooks, "Config", lambda: type("C", (), {
+        "data_dir": tmp_path, "db_path": tmp_path / "memory.db", "index_path": tmp_path / "index.faiss"})())
+    monkeypatch.setattr(hooks, "open_store", lambda cfg: MemoryStore(cfg.db_path, cfg.index_path, HashEmbedder()))
+    hooks.run_inline("prompt", {"prompt": "Our staging server runs on port 8443.", "session_id": "s", "cwd": "/x/shop"})
+    import sqlite3
+    rows = sqlite3.connect(tmp_path / "memory.db").execute("SELECT content, source, trust FROM memories").fetchall()
+    assert rows == [("Our staging server runs on port 8443.", "user", "verified")]
+
+
+def test_correction_reaches_rules_shown_at_session_start(tmp_path):
+    """A rule shown once at the session start is corrected later by "No, ..." (2026-11-25)."""
+    from dore.integrations.hooks import on_prompt
+    s = make(tmp_path)
+    s.duplicate_threshold = 1.01
+    # (HashEmbedder scores the long real sentence 0.44; the real-embedder run is in reports/long-conversation)
+    old = s.add("Finance decided the max discount for codes is 50 percent, because of shipping.",
+                trust="verified", project="shop")
+    st = _State(tmp_path, "rules")
+    assert "50 percent" in on_prompt(s, "add a SUMMER code", "shop", st)   # shown as a rule
+    on_prompt(s, "what does the cart total include?", "shop", st)  # an unrelated prompt in between
+    on_prompt(s, "No, the max discount for codes is 40 percent now.", "shop", st)
+    m = s.get(old)
+    assert m.trust == "wrong" or m.replaced_by is not None

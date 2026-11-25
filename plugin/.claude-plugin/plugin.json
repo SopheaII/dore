@@ -1,6 +1,6 @@
 {
   "name": "dore",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local long-term memory shared by all Claude Code sessions and projects (dore). Runs on this machine; nothing leaves it.",
   "author": { "name": "dore" }
 }
