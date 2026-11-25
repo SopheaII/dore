@@ -196,11 +196,37 @@ def message_key(text: str) -> str:
     return hashlib.sha1(" ".join(text.split()).encode()).hexdigest()[:16]
 
 
+PROMOTE_SIMILARITY = 0.85  # the same habit said in another project
+
+
+def _promoted(store: MemoryStore, fact: str, project: str) -> bool:
+    """A habit or preference with no concrete value ("Don't reformat existing code") said again in a
+    second project becomes general: it is about the user, not one project. Facts with a name or
+    number ("The database is PostgreSQL") never move: they differ per project."""
+    from dore.learn.grammar import nlp, _detail
+    parser = nlp()
+    if not project or parser is None or _detail(parser(fact)):  # any name, incl. "vitest"
+        return False
+    # Same content words, not only close in meaning: "We merge into develop" vs "... into trunk" are
+    # close (0.9) but differ in the value, which may be an ordinary word (stream test, 2026-11-25).
+    words = _content_words(fact)
+    return any(m.project not in ("", project) and m.source == "user" and m.trust == "verified"
+               and _content_words(m.content) == words
+               for m in store.search(fact, k=3, min_similarity=PROMOTE_SIMILARITY, touch=False, keyword=False))
+
+
+def _content_words(text: str) -> frozenset:
+    from dore.memory.rules import FRAME_FILLER, STOPWORDS
+    return frozenset(w for w in re.findall(r"[a-z0-9]+", text.lower())
+                     if w not in STOPWORDS and w not in FRAME_FILLER and w not in ("please", "pls", "plz", "t", "don"))
+
+
 def save_facts(store: MemoryStore, facts: list[str], project: str) -> list[int]:
     """Store user statements (verified); each replaces older notes it updates."""
     ids = []
-    for scope in dict.fromkeys(scope_for(f, project) for f in facts):
-        group = [f for f in facts if scope_for(f, project) == scope]
+    scopes = {f: ("" if _promoted(store, f, project) else scope_for(f, project)) for f in facts}
+    for scope in dict.fromkeys(scopes.values()):
+        group = [f for f in facts if scopes[f] == scope]
         ids += store.add_many(group, kind="statement", source="user", trust="verified", project=scope,
                               supersede=True)
     return ids

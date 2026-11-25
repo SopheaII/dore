@@ -70,6 +70,12 @@ CUT_AT = {"but", "so", "because", "since", "though", "although", "however"}
 MAX_FACT_WORDS = 20  # lasting facts are short (longest in the test sets: 14); longer = a run-on
 SUBORDINATE = {"because", "since", "after", "before", "when", "whenever", "while", "if", "unless", "although",
                "though", "until", "once", "so", "cause", "coz", "cuz", "bc"}
+# Standing "don't" instructions are lasting preferences, polite or not ("please don't reformat existing
+# code", "i don't want minor alerts", "do not touch the payment module"): found as repeated in real use.
+STANDING_DONT = re.compile(r"^(?:(?:please|pls|plz|kindly)\s+)?(?:(?:i|we)\s+(?:really\s+)?(?:don'?t|do not|never)\s+"
+                           r"(?:want|need|like)\b|(?:don'?t|dont|do not|never|no need to|stop)\s+\w+)", re.I)
+# Tied to the moment: not a lasting rule ("I don't want to change the code right now").
+MOMENT = re.compile(r"\b(?:right now|for now|now|yet|this time|today|tonight|anymore|at the moment|keep going)\b", re.I)
 FIRST_PERSON_START = re.compile(r"^(?:i|i'm|we|we're|my|our)\b", re.I)
 CONNECTIVE = re.compile(r"^(?:so|since|because|but|and|as)\s+", re.I)
 
@@ -236,6 +242,12 @@ def fact_text(sentence: str) -> str | None:
     parser = nlp()
     if parser is None:
         return None
+    if STANDING_DONT.match(sentence) and not MOMENT.search(sentence):
+        rest = sentence[STANDING_DONT.match(sentence).end():].split()
+        # A real object is needed: "please do not touch it" points at the conversation.
+        if rest and rest[0].lower().strip(".,!") not in PRONOUN_OBJ and len(sentence.split()) <= MAX_FACT_WORDS:
+            text = re.sub(r"^(?:please|pls|plz|kindly)\s+", "", sentence.strip(), flags=re.I)
+            return text[:1].upper() + text[1:]
     if any(POLITE.match(w) for w in re.findall(r"[A-Za-z]+", sentence)):
         # A polite sentence is a request; only a separate part without the marker can hold a fact
         # ("we self-host sentry, so please check the dsn" -> "we self-host sentry").

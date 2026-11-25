@@ -148,6 +148,15 @@ DEV = [
     ("i wnat to add a filter for unpaid bills", "", None, "typo"),
     ("I should try the second option", "", None, "progress"),
     ("Status · paid · due soon", "", None, "ui"),
+    # standing "don't" instructions are lasting preferences (from the real repeat test, own wording)
+    ("please don't reformat existing code when you edit a file", "reformat", None, "polite"),
+    ("i don't want the bot to send me minor alerts", "minor alerts", None, "non-native"),
+    ("never commit straight to main", "main", None, "terse"),
+    ("do not touch the payment module", "payment module", None, "request"),
+    ("i don't want to change the code right now", "", None, "progress"),
+    ("don't stop, keep going", "", None, "request"),
+    ("please do not touch it", "", None, "request"),
+    ("no need to run the tests this time", "", None, "request"),
     # ambiguous: not scored
     ("Don't run the local model, just use Claude Code now.", None, None, "ambiguous"),
 ]

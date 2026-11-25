@@ -137,3 +137,20 @@ def test_recheck_archives_old_junk_but_keeps_facts_and_standing_rules(tmp_path):
     assert found == {ids[t] for t in junk}
     assert all(not s.get(ids[t]).archived for t in keep) and not s.get(p).archived
     assert all(s.get(ids[t]).archived for t in junk)  # archived, not deleted
+
+
+@needs_parser
+def test_standing_dont_and_promotion_to_general(tmp_path):
+    from dore.integrations.hooks import save_facts
+    from dore.memory import MemoryStore
+    from dore.memory.embed import HashEmbedder
+    assert message_facts("please don't rewrite comments you did not change")
+    assert message_facts("i don't want the bot to post on weekends")
+    assert message_facts("don't change the code right now") == [] and message_facts("please do not touch it") == []
+    s = MemoryStore(tmp_path / "m.db", None, HashEmbedder())
+    save_facts(s, ["Don't rewrite comments you did not change"], "shop")
+    [b] = save_facts(s, ["Don't rewrite comments you did not change."], "blog")   # a second project
+    assert s.get(b).project == ""                                                 # now general
+    save_facts(s, ["The database is PostgreSQL 16"], "shop")
+    [d] = save_facts(s, ["The database is PostgreSQL 16."], "blog")
+    assert s.get(d).project == "blog"                                             # values never move
