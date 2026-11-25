@@ -14,7 +14,6 @@ import fcntl
 import json
 import os
 import socket
-import time
 from pathlib import Path
 
 from dore.config import Config

@@ -23,9 +23,9 @@ from __future__ import annotations
 import json
 import sys
 
-from dore.learn.statements import ORG, PERSONAL, message_facts
+from dore.learn.statements import ORG, PERSONAL
 from dore.config import Config
-from dore.integrations.hooks import _State, message_key, on_prompt, save_facts
+from dore.integrations.hooks import _State, learn_message, message_key, on_prompt
 from dore.integrations.server import LONG_TEXT, correct_reply, format_hit, session_brief
 
 
@@ -64,12 +64,11 @@ class Bridge:
     def learn(self, req: dict) -> list[int]:
         project = str(req.get("project") or "")
         # Messages the prompt op already learned from are skipped (no double counting).
-        facts = [f for msg in req.get("messages") or [] if message_key(str(msg)) not in self._learned
-                 for f in message_facts(str(msg))]
-        if not facts:
+        msgs = [str(m) for m in req.get("messages") or [] if message_key(str(m)) not in self._learned]
+        if not msgs:
             return []
         store = self.store()
-        ids = save_facts(store, facts, project)
+        ids = [i for m in msgs for i in learn_message(store, m, project)]  # same rules as Claude Code
         store.save(force=True)
         return ids
 

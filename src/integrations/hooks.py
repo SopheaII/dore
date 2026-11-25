@@ -264,15 +264,26 @@ def save_facts(store: MemoryStore, facts: list[str], project: str) -> list[int]:
     return ids
 
 
+def learn_message(store: MemoryStore, msg: str, project: str, echo: str = "") -> list[int]:
+    """Everything one user message teaches, in one place (prompt hook, SessionEnd, opencode bridge):
+    short facts (not ones Claude wrote and the user pasted back); else the gist of a long instruction
+    as a hidden requirement."""
+    ids = save_facts(store, not_echoed(message_facts(msg), echo), project)
+    if not ids:
+        req = not_echoed([requirement_text(msg)], echo)
+        rid = save_requirement(store, req[0], project) if req and req[0] else None
+        ids = [rid] if rid else []
+    return ids
+
+
 def save_session(store: MemoryStore, transcript: Path, project: str,
                  learned: set[str] | None = None) -> list[int]:
     """Session end: store statements from messages the prompt hook didn't already learn
     (`learned` = their message_key), e.g. when the hook timed out."""
     learned = learned or set()
     echo = assistant_text(transcript, max_bytes=4_000_000)
-    facts = [f for msg in _user_messages(transcript) if message_key(msg) not in learned
-             for f in not_echoed(message_facts(msg), echo)]
-    ids = save_facts(store, facts, project)
+    ids = [i for msg in _user_messages(transcript) if message_key(msg) not in learned
+           for i in learn_message(store, msg, project, echo)]
     store.save(force=True)
     return ids
 
@@ -317,11 +328,7 @@ def on_prompt(store: MemoryStore, prompt: str, project: str, state: _State, echo
     statements right away (so a correction counts in this session, not only at its end), then
     pick notes for this prompt. Returns the text to add ("" = nothing, 0 tokens)."""
     state.d["last_signal"] = react(store, prompt, state)
-    new_ids = save_facts(store, not_echoed(message_facts(prompt), echo), project)
-    if not new_ids:  # a long instruction with no short fact: keep its gist (low trust)
-        req = not_echoed([requirement_text(prompt)], echo)
-        rid = save_requirement(store, req[0], project) if req and req[0] else None
-        new_ids = [rid] if rid else []
+    new_ids = learn_message(store, prompt, project, echo)
     if new_ids:
         state.d.setdefault("learned", []).append(message_key(prompt))
         # Never echo back what the user just said.
