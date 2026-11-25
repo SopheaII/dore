@@ -26,7 +26,7 @@ from pathlib import Path
 
 from dore.config import Config
 from dore.learn.statements import (CORRECTION_LEAD, IMPLICIT_FEEDBACK, PERSONAL, QUESTION_START, REASK_SIMILARITY,
-                                   message_facts, scope_for, user_facts)
+                                   REQ_MAX_CHARS, message_facts, requirement_text, scope_for, user_facts)
 from dore.memory import SEARCHABLE_SQL, MemoryStore, same_frame
 
 STRONG = 0.65          # prompt-to-note similarity needed to add a note
@@ -75,10 +75,17 @@ class _State:
                 p.unlink(missing_ok=True)
 
 
-def _line(mid: int, content: str, label: str = "", created: float | None = None) -> str:
-    text = content if len(content) <= MAX_CHARS else content[:MAX_CHARS] + "…"
+def _line(mid: int, content: str, label: str = "", created: float | None = None, limit: int = MAX_CHARS) -> str:
+    text = content if len(content) <= limit else content[:limit] + "…"
     date = f" ({time.strftime('%Y-%m-%d', time.localtime(created))})" if created else ""
     return f"- #{mid}{date}{label} {text}"
+
+
+def _showable(m) -> bool:
+    """Notes the hook may add: not wrong, not about dore itself, and a requirement said only once is
+    kept but not shown (most are one-off tasks)."""
+    return (m.trust != "wrong" and not ABOUT_ASSISTANT.match(m.content)
+            and not (m.kind == "requirement" and m.trust != "verified" and m.similarity < REQ_SHOW))
 
 
 def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State) -> str:
@@ -96,7 +103,7 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
             shown.add(i)
     hits = store.search(prompt[:2000], k=MAX_NOTES + len(shown), min_similarity=STRONG,
                         project=project or None, touch=False)
-    hits = [m for m in hits if m.trust != "wrong" and not ABOUT_ASSISTANT.match(m.content)]
+    hits = [m for m in hits if _showable(m)]
     if hits:  # keep notes near the best match; a note below STRONG got in by an exact ID/keywords
         top = max(m.focus for m in hits)  # hub-corrected (`MemoryStore.search`); STRONG stays on raw similarity
         near = [m for m in hits if m.focus >= top - GAP or m.similarity < STRONG]
@@ -108,10 +115,13 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
     notes = [m for m in hits if m.id not in shown][:MAX_NOTES]
     if not notes and project:  # nothing here: a very strong match from another project may help
         notes = [m for m in store.search(prompt[:2000], k=2, min_similarity=0.75, touch=False)
-                 if m.id not in shown and m.project not in (project, "")][:1]
+                 if m.id not in shown and m.project not in (project, "") and _showable(m)][:1]
     for m in notes:
         label = f" (from project {m.project})" if m.project not in (project, "") else ""
-        cands.append((m.id, _line(m.id, m.content, label, m.created), True))
+        if m.kind == "requirement":
+            label += " (your earlier request)" if m.trust != "verified" else " (your repeated request)"
+        cands.append((m.id, _line(m.id, m.content, label, m.created,
+                                  limit=REQ_MAX_CHARS + 1 if m.kind == "requirement" else MAX_CHARS), True))
     # Token cap: add lines while they fit; a line left out may still be shown on a later prompt.
     lines, used, last_shown = [], 0, []
     for mid, line, is_note in cands:
@@ -221,6 +231,28 @@ def _content_words(text: str) -> frozenset:
                      if w not in STOPWORDS and w not in FRAME_FILLER and w not in ("please", "pls", "plz", "t", "don"))
 
 
+REQ_SHOW = 1.01  # a requirement said only once is kept but not shown (0.75 doubled tokens: 8.3 -> 17.6 per prompt)
+REQ_SAME = 0.85  # the same requirement said again (0.75 merged different requests about one screen)
+
+
+def save_requirement(store: MemoryStore, text: str, project: str) -> int | None:
+    """Keep the gist of a long instruction as a low-trust project requirement. Said again (close in
+    meaning) in a later message, the existing note is strengthened (seen again, verified: the user
+    repeated it) instead of stored twice. Returns the note id."""
+    if not text:
+        return None
+    same = [m for m in store.search(text, k=3, min_similarity=REQ_SAME, project=project or None, touch=False,
+                                    keyword=False) if m.kind == "requirement" and m.project == project]
+    if same:
+        m = same[0]
+        store.db.execute("UPDATE memories SET times_seen=times_seen+1, last_seen=? WHERE id=?", (time.time(), m.id))
+        if m.trust != "verified":
+            store.set_trust(m.id, "verified")
+        store.db.commit()
+        return m.id
+    return store.add(text, kind="requirement", source="user", trust="unverified", project=project)
+
+
 def save_facts(store: MemoryStore, facts: list[str], project: str) -> list[int]:
     """Store user statements (verified); each replaces older notes it updates."""
     ids = []
@@ -286,6 +318,10 @@ def on_prompt(store: MemoryStore, prompt: str, project: str, state: _State, echo
     pick notes for this prompt. Returns the text to add ("" = nothing, 0 tokens)."""
     state.d["last_signal"] = react(store, prompt, state)
     new_ids = save_facts(store, not_echoed(message_facts(prompt), echo), project)
+    if not new_ids:  # a long instruction with no short fact: keep its gist (low trust)
+        req = not_echoed([requirement_text(prompt)], echo)
+        rid = save_requirement(store, req[0], project) if req and req[0] else None
+        new_ids = [rid] if rid else []
     if new_ids:
         state.d.setdefault("learned", []).append(message_key(prompt))
         # Never echo back what the user just said.

@@ -154,3 +154,22 @@ def test_standing_dont_and_promotion_to_general(tmp_path):
     save_facts(s, ["The database is PostgreSQL 16"], "shop")
     [d] = save_facts(s, ["The database is PostgreSQL 16."], "blog")
     assert s.get(d).project == "blog"                                             # values never move
+
+
+def test_long_instruction_kept_as_hidden_requirement(tmp_path):
+    from dore.integrations.hooks import _State, on_prompt
+    from dore.learn.statements import requirement_text
+    from dore.memory import MemoryStore
+    from dore.memory.embed import HashEmbedder
+    long_msg = ("i want the export to keep every column the user picked and not drop empty ones, and also "
+                "make sure the dates stay in the user's own timezone")
+    assert "not drop empty ones" in requirement_text(long_msg)
+    assert requirement_text("why is the export so slow when i pick many columns at the same time today") == ""
+    s = MemoryStore(tmp_path / "m.db", None, HashEmbedder())
+    on_prompt(s, long_msg, "p", _State(tmp_path, "a"))
+    [r] = s.db.execute("SELECT id, trust FROM memories WHERE kind='requirement'").fetchall()
+    assert r[1] == "unverified"                                   # kept, low trust
+    assert "export" not in on_prompt(s, "the export columns", "p", _State(tmp_path, "b"))  # not shown yet
+    on_prompt(s, long_msg + ".", "p", _State(tmp_path, "c"))       # said again
+    assert s.get(r[0]).trust == "verified" and s.db.execute(
+        "SELECT count(*) FROM memories WHERE kind='requirement'").fetchone()[0] == 1   # strengthened, not doubled

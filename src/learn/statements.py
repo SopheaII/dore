@@ -199,3 +199,37 @@ def message_facts(msg: str) -> list[str]:
         return []
     found = user_facts("\n".join(ln for ln in lines if not structured_line(ln)))
     return found if len(found) <= MAX_MSG_FACTS else []
+
+
+# ---- Requirements: long instructions keep their gist (low trust; stronger when said again) ----
+# A long request that sets a constraint ("summarize, but not too short, and don't invent sentences") is
+# lasting knowledge even though it is not a short fact. Decided by structure: length, not a question,
+# and constraint grammar (negation, modality, "only", "keep", "make sure", "without", "instead").
+CONSTRAINT = re.compile(r"(?i)\b(not|n't|never|always|keep|make sure|without|only|must|should|instead|avoid|"
+                        r"no need|don'?t|dont)\b")
+REQ_QUESTION = re.compile(r"(?i)^(?:what|who|whom|whose|why|how|which|where|when|is|are|am|do|does|did|can|could|will|would)\b")
+REQ_MIN_WORDS = 15
+REQ_MAX_CHARS = 240
+PATH_OR_URL = re.compile(r"(?:https?://\S+|(?:~|/)[\w./ \\-]*\.\w+|/Users/\S+)")
+
+
+def requirement_text(msg: str) -> str:
+    """The gist of a long instruction ("" if the message is not one): its sentences that set a
+    constraint, without paths, links or pasted blocks, at most REQ_MAX_CHARS."""
+    text = TAG_BLOCK.sub(" ", msg).strip()
+    if not text or text.startswith("<") or COMPACT_SUMMARY.match(text) or len(text) > MAX_MSG_CHARS:
+        return ""
+    lines = [ln for ln in text.splitlines() if ln.strip() and not structured_line(ln)]
+    text = PATH_OR_URL.sub(" ", " ".join(lines))
+    words = text.split()
+    if len(words) < REQ_MIN_WORDS or text.rstrip().endswith("?") or REQ_QUESTION.match(text.strip()):
+        return ""
+    parts = [p.strip(" ,;") for p in re.split(r"(?<=[.!?])\s+", text) if p.strip()]
+    keep = [p for p in parts if CONSTRAINT.search(p) and not p.rstrip().endswith("?") and len(p.split()) >= 4]
+    if not keep:
+        return ""
+    gist = " ".join(dict.fromkeys(keep))
+    gist = re.sub(r"\s+", " ", gist).strip()
+    if len(gist) > REQ_MAX_CHARS:
+        gist = gist[:REQ_MAX_CHARS].rsplit(" ", 1)[0] + "…"
+    return gist[:1].upper() + gist[1:]
