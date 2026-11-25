@@ -65,7 +65,7 @@ PRONOUN_OBJ = {"it", "this", "that", "them", "these", "those"}
 # "..., right" / "... or not" at the end: a question written as a statement.
 TAG_QUESTION = re.compile(r"(?:,\s*(?:right|correct|yes|no|ok|okay)|\bor (?:not|no|what|nah))\s*[?.!]*\s*$", re.I)
 # Where a polite request ends and a separate clause can start.
-SEGMENT = re.compile(r"\s*[,;:]\s*|\s+(?=(?:so|since|because|but|and|as)\s)", re.I)
+SEGMENT = re.compile(r"\s*[,;:](?!\d)\s*|\s+(?=(?:so|since|because|but|and|as)\s)", re.I)
 CUT_AT = {"but", "so", "because", "since", "though", "although", "however"}
 MAX_FACT_WORDS = 20  # lasting facts are short (longest in the test sets: 14); longer = a run-on
 SUBORDINATE = {"because", "since", "after", "before", "when", "whenever", "while", "if", "unless", "although",
@@ -288,16 +288,53 @@ def fact_text(sentence: str) -> str | None:
         for c in subs:
             if c.pos_ in ("VERB", "AUX") and _clause_is_fact(c, _clause_tokens(c)):
                 start = min(t.i for t in c.subtree if not (t.dep_ == "mark" and t.head.i == c.i) and not t.is_punct)
+                # Words before the clause's own "since/because" belong to the clause before it
+                # ("... real printer right since my stockman gave me ...").
+                start = max([start] + [m.i + 1 for m in c.children if m.dep_ == "mark" and m.i >= start])
                 # A clause before the command ends where it ends; others run to the next connective
                 # ("... because i use X, Y, Z... but is any ...") or the end (spaCy may cut "3am" in two).
                 end = c.right_edge.i + 1 if c in before else next(
                     (t.i for t in doc[c.i + 1:] if t.lower_ in CUT_AT or t.text in ("...", "…")), len(doc))
-                if sum(not t.is_punct for t in doc[start:end]) > MAX_FACT_WORDS:
+                if sum(not t.is_punct for t in doc[start:end]) > MAX_FACT_WORDS or _inside_word(doc, start, end):
                     continue
                 text = doc[start:end].text.strip(" ,;.")
                 return text[:1].upper() + text[1:]
         break
     return ""
+
+
+OPENERS = "([{\"'“‘"
+NOMINATIVE = {"i", "we", "he", "she", "they"}
+DANGLING = {"DET", "ADP", "CCONJ", "SCONJ", "AUX", "PART"}  # word classes that need something after them
+
+
+def _inside_word(doc, start: int, end: int) -> bool:
+    """The span starts or ends in the middle of a written word ("11:05" cut to "05")."""
+    if start > 0 and not doc[start - 1].whitespace_ and doc[start - 1].text not in OPENERS:
+        return True
+    return end < len(doc) and not doc[end - 1].whitespace_ and not (
+        doc[end].is_punct and (end + 1 == len(doc) or doc[end].whitespace_))
+
+
+def complete(text: str) -> bool:
+    """A note reads as a whole statement: brackets and quotes closed, and it doesn't stop on a word
+    that needs a continuation ("My purpose is that", "I don't need clipper i", "... and"). Decided
+    by word class, so it holds for any wording. True without a parser."""
+    if text.count("(") != text.count(")") or text.count('"') % 2 or text.count("“") != text.count("”"):
+        return False
+    parser = nlp()
+    if parser is None:
+        return True
+    words = [t for t in parser(text) if not t.is_punct]
+    if not words:
+        return False
+    last = words[-1]
+    if last.pos_ in DANGLING and last.dep_ not in ("prt", "advmod"):  # "turn it off", "get it back" are fine
+        return False
+    if last.lower_ in NOMINATIVE:  # "I/we/he..." can't end a statement, whatever the parser says
+        return False
+    return not (last.pos_ == "PRON" and (last.dep_ in SUBJ or last.lower_ in DEICTIC)
+                and last.dep_ not in ("dobj", "pobj"))
 
 
 def about_user(sentence: str) -> bool | None:
@@ -327,3 +364,54 @@ def has_detail(text: str) -> bool:
     """`_detail` for a plain string (used when the parse can't be trusted)."""
     parser = nlp()
     return parser is not None and _detail(parser(text))
+
+
+LEAVE_OUT = {"conj", "cc", "advcl", "parataxis", "ccomp", "relcl", "mark", "punct", "nsubj", "nsubjpass", "intj",
+             "discourse", "appos"}
+LIGHT = {"be", "do", "have", "get", "make", "go", "let"}
+
+
+def rule_cores(text: str) -> list[str]:
+    """The standing rules inside a long request: each negated verb phrase with its objects ("do not
+    touch old code", "not invent new sentences", "don't want so much noise alert"). Found by the
+    negation's place in the parse, so any verb and wording works. Left out: phrases tied to the
+    moment ("right now"), questions, thoughts with nothing after them ("don't think"), and phrases
+    with fewer than two content words ("are not", "don't want")."""
+    parser = nlp()
+    if parser is None:
+        return []
+    out = []
+    for sent in parser(text).sents:
+        s = sent.text.strip()
+        if s.endswith("?") or TAG_QUESTION.search(s) or MOMENT.search(s):
+            continue
+        for t in sent:
+            if not (t.dep_ == "neg" or t.lower_ == "never"):
+                continue
+            h = t.head
+            # An action rule needs an action verb: "not look good", "are not valid" judge the current
+            # work (a complaint about now), they don't set a rule.
+            if h.pos_ != "VERB" or h.lemma_.lower() in PERCEPTION | {"be"}:
+                continue
+            if _mental(h) and not any(c.dep_ in ("dobj", "xcomp", "ccomp") for c in h.children):
+                continue
+            toks, stack = set(), [h]
+            while stack:
+                x = stack.pop()
+                toks.add(x)
+                stack += [k for k in x.children if k.dep_ not in LEAVE_OUT]
+            # "do not touch or format old code": verbs joined under one negation share it
+            for k in h.children:
+                if k.dep_ == "conj" and k.pos_ == "VERB" and not any(c.dep_ in SUBJ for c in k.children):
+                    toks |= {y for y in k.subtree if y.dep_ not in LEAVE_OUT - {"conj", "cc"}} | {
+                        c for c in h.children if c.dep_ == "cc"}
+            words = [x for x in sorted(toks, key=lambda x: x.i) if not x.is_punct and not POLITE.match(x.text)]
+            while words and words[-1].pos_ in DANGLING | {"PRON", "CCONJ"} and words[-1].dep_ not in ("prt", "neg"):
+                words.pop()
+            content = [x for x in words if x.pos_ in ("NOUN", "PROPN", "VERB", "ADJ") and not x.is_stop
+                       and x.lemma_.lower() not in LIGHT]
+            if len(content) >= 2 and len(words) <= 12:
+                core = " ".join(x.text for x in words)
+                core = re.sub(r"\s+(n't|'s|'re|'m|'ll|'ve|'d)\b", r"\1", core)
+                out.append(core[:1].upper() + core[1:])
+    return list(dict.fromkeys(out))

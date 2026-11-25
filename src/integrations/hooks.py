@@ -236,6 +236,34 @@ REQ_SHOW = 1.01  # a requirement said only once is kept but not shown (0.75 doub
 REQ_SAME = 0.85  # the same requirement said again (0.75 merged different requests about one screen)
 
 
+RULE_SOURCE = "user-rule"  # the negated verb phrase of a long request ("do not touch old code")
+RULE_SAME = 0.85  # real use: true repeats 0.86-0.93, the next pair (a different rule) 0.77
+
+
+def save_rule_cores(store: MemoryStore, text: str, project: str) -> list[int]:
+    """Keep each standing rule inside a long request ("..., and do not touch old code") as a short
+    hidden note. Said again in other words (in this project, or in another one), it is verified and
+    shown: the user repeating a rule is the signal that it lasts. The gist is kept as well."""
+    from dore.learn.grammar import rule_cores
+    ids = []
+    for core in rule_cores(text):
+        same = [m for m in store.search(core, k=3, min_similarity=RULE_SAME, touch=False, keyword=False)
+                if m.source == RULE_SOURCE and m.kind == "requirement"]
+        here = [m for m in same if m.project == project]
+        if here:
+            m = here[0]
+            store.db.execute("UPDATE memories SET times_seen=times_seen+1, last_seen=? WHERE id=?",
+                             (time.time(), m.id))
+            if m.trust != "verified":
+                store.set_trust(m.id, "verified")
+            store.db.commit()
+            ids.append(m.id)
+        else:  # said before only in another project: lasting for this user, kept in this project
+            ids.append(store.add(core, kind="requirement", source=RULE_SOURCE, project=project,
+                                 trust="verified" if same else "unverified"))
+    return ids
+
+
 def save_requirement(store: MemoryStore, text: str, project: str) -> int | None:
     """Keep the gist of a long instruction as a low-trust project requirement. Said again (close in
     meaning) in a later message, the existing note is strengthened (seen again, verified: the user
@@ -243,7 +271,8 @@ def save_requirement(store: MemoryStore, text: str, project: str) -> int | None:
     if not text:
         return None
     same = [m for m in store.search(text, k=3, min_similarity=REQ_SAME, project=project or None, touch=False,
-                                    keyword=False) if m.kind == "requirement" and m.project == project]
+                                    keyword=False) if m.kind == "requirement" and m.project == project
+            and m.source != RULE_SOURCE]
     if same:
         m = same[0]
         store.db.execute("UPDATE memories SET times_seen=times_seen+1, last_seen=? WHERE id=?", (time.time(), m.id))
@@ -270,10 +299,12 @@ def learn_message(store: MemoryStore, msg: str, project: str, echo: str = "") ->
     short facts (not ones Claude wrote and the user pasted back); else the gist of a long instruction
     as a hidden requirement."""
     ids = save_facts(store, not_echoed(message_facts(msg), echo), project)
-    if not ids:
-        req = not_echoed([requirement_text(msg)], echo)
-        rid = save_requirement(store, req[0], project) if req and req[0] else None
-        ids = [rid] if rid else []
+    req = not_echoed([requirement_text(msg)], echo)
+    if req and req[0]:
+        save_rule_cores(store, req[0], project)  # rules inside any long message, facts or not
+        if not ids:
+            rid = save_requirement(store, req[0], project)
+            ids = [rid] if rid else []
     return ids
 
 

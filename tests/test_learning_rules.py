@@ -167,9 +167,39 @@ def test_long_instruction_kept_as_hidden_requirement(tmp_path):
     assert requirement_text("why is the export so slow when i pick many columns at the same time today") == ""
     s = MemoryStore(tmp_path / "m.db", None, HashEmbedder())
     on_prompt(s, long_msg, "p", _State(tmp_path, "a"))
-    [r] = s.db.execute("SELECT id, trust FROM memories WHERE kind='requirement'").fetchall()
+    [r] = s.db.execute("SELECT id, trust FROM memories WHERE kind='requirement' AND source='user'").fetchall()
     assert r[1] == "unverified"                                   # kept, low trust
     assert "export" not in on_prompt(s, "the export columns", "p", _State(tmp_path, "b"))  # not shown yet
     on_prompt(s, long_msg + ".", "p", _State(tmp_path, "c"))       # said again
     assert s.get(r[0]).trust == "verified" and s.db.execute(
-        "SELECT count(*) FROM memories WHERE kind='requirement'").fetchone()[0] == 1   # strengthened, not doubled
+        "SELECT count(*) FROM memories WHERE kind='requirement' AND source='user'").fetchone()[0] == 1  # not doubled
+
+
+def test_broken_fragments_are_not_notes():
+    from dore.learn.grammar import complete
+    from dore.learn.statements import message_facts
+    for broken in ["My purpose is that", "I don't need the clipper i", "The config lives in (the repo",
+                   "Dore has memvid not"]:
+        assert not complete(broken), broken
+    for whole in ["We turn the cache off", "You can't get the money back", "The API runs on port 8080"]:
+        assert complete(whole), whole
+    # a time like 11:05 is one word: never cut into "05 AM now are 13"
+    assert message_facts("after the manual run at 11:05 AM now it is 13:34 PM but no job ran, please check") == []
+
+
+def test_rule_inside_long_request_verified_when_repeated_in_other_words(tmp_path):
+    from dore.integrations.hooks import RULE_SOURCE, _State, on_prompt
+    from dore.learn.grammar import rule_cores
+    from dore.memory import MemoryStore
+    from dore.memory.embed import HashEmbedder
+    assert rule_cores("please review the payment flow again and do not touch the old code since it is sensitive")
+    assert rule_cores("i don't want to update code right now, just tell me") == []      # tied to the moment
+    assert rule_cores("is it fast or not? i don't think so") == []                      # question, a thought
+    s = MemoryStore(tmp_path / "m.db", None, HashEmbedder())
+    q = "SELECT trust FROM memories WHERE source=?"
+    on_prompt(s, "please review the payment flow again and check the totals, and do not touch the old code",
+              "p", _State(tmp_path, "a"))
+    assert [r[0] for r in s.db.execute(q, (RULE_SOURCE,))] == ["unverified"]          # hidden at first
+    on_prompt(s, "the refund screen has a bug with rounding on totals, fix it but do not touch the old code",
+              "p", _State(tmp_path, "b"))
+    assert [r[0] for r in s.db.execute(q, (RULE_SOURCE,))] == ["verified"]            # repeated: shown

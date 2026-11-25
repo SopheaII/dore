@@ -114,7 +114,7 @@ def user_facts(text: str) -> list[str]:
     """Durable statements in a coding prompt: no requests, questions, small talk or code.
     With the parser installed, `grammar.fact_text` decides by sentence structure (any wording);
     otherwise the word rules below are used."""
-    from dore.learn.grammar import fact_text, has_detail, nlp
+    from dore.learn.grammar import complete, fact_text, has_detail, nlp
     out = []
     for sent in SENTENCE_SPLIT.split(text.strip()):
         sent = sent.strip()
@@ -143,7 +143,7 @@ def user_facts(text: str) -> list[str]:
                 continue
         if ECHO.search(sent):
             continue
-        if NOT_A_FACT.match(sent):
+        if NOT_A_FACT.match(sent) or not complete(sent):
             continue
         n = len(sent.split())
         # 3 words are enough when one names something concrete ("tests use vitest", "my name dara").
