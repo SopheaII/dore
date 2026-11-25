@@ -96,8 +96,9 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
         rows = store.db.execute(
             f"SELECT id, content, project, created FROM memories WHERE {SEARCHABLE_SQL} AND trust='verified' "
             "AND project IN (?, '') ORDER BY created DESC LIMIT 200", (project,)).fetchall()
-        rules = [(i, c, p, t) for i, c, p, t in rows
-                 if RULE.search(c) and (not PERSONAL.search(c) or PERSONAL_RULE.search(c))][:MAX_RULES]
+        # Not the rule the user just typed (already in `shown`): Claude has their message.
+        rules = [(i, c, p, t) for i, c, p, t in rows if i not in shown
+                 and RULE.search(c) and (not PERSONAL.search(c) or PERSONAL_RULE.search(c))][:MAX_RULES]
         for i, c, p, t in rules:
             cands.append((i, _line(i, c, created=t), False))
             shown.add(i)

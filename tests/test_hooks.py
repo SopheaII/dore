@@ -237,3 +237,10 @@ def test_correction_reaches_rules_shown_at_session_start(tmp_path):
     on_prompt(s, "No, the max discount for codes is 40 percent now.", "shop", st)
     m = s.get(old)
     assert m.trust == "wrong" or m.replaced_by is not None
+
+
+def test_rule_just_typed_is_not_echoed_at_session_start(tmp_path):
+    from dore.integrations.hooks import on_prompt
+    s = make(tmp_path)
+    assert on_prompt(s, "We never push straight to main.", "p", _State(tmp_path, "new")) == ""
+    assert "never push" in on_prompt(s, "hello again, let's start", "p", _State(tmp_path, "next"))  # later sessions see it
