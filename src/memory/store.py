@@ -31,6 +31,7 @@ import numpy as np
 
 from .embed import Embedder
 HUB_WEIGHT = 0.7
+CHANGE_SIMILARITY = 0.6  # a reworded update ("We switched the cache to Redis") must be this close to the old note
 # Generic questions a developer asks about any project (not the eval's questions): a note close to
 # many of them matches every prompt a little and is pushed down (`search`, hub correction).
 HUB_QUESTIONS = (
@@ -42,7 +43,7 @@ HUB_QUESTIONS = (
     "What linter do we use?", "How are secrets managed?", "What does the CI run?", "How do I reset my password?",
     "Which payment provider do we use?", "What is the timeout?", "How many users do we have?")
 
-from .rules import _dup_key, _is_identifier, _jaccard, _query_terms, _signature, embed_text, replaces
+from .rules import _dup_key, _is_identifier, _jaccard, _query_terms, _signature, changes, embed_text, replaces
 from .schema import FTS_SCHEMA, SCHEMA
 from .types import _COLS, SEARCHABLE_SQL, TRUST_LEVELS, Memory, _row, searchable
 
@@ -242,7 +243,7 @@ class MemoryStore:
         hits = [(float(s), int(i)) for s, i in zip(sims[0], ids[0]) if i not in (-1, new_id) and s >= min_similarity]
         rows = self.get_many([i for _, i in hits])
         done = []
-        for _, i in hits:
+        for sim, i in hits:
             m = rows.get(i)
             # Only older notes; in one batch (same time) only earlier ones, or two notes saved
             # together replaced each other and both left search.
@@ -254,7 +255,8 @@ class MemoryStore:
                     or (m.created == new.created and m.id > new.id)
                     or m.kind not in ("fact", "statement", "correction")
                     or (m.trust == "verified" and new.trust != "verified")
-                    or not replaces(m.content, new.content)):
+                    or not (replaces(m.content, new.content)
+                            or (sim >= CHANGE_SIMILARITY and changes(m.content, new.content)))):
                 continue
             self.db.execute("UPDATE memories SET replaced_by=?, valid_to=? WHERE id=?", (new_id, time.time(), i))
             self._sync_index(m, self.get(i))

@@ -21,10 +21,10 @@ Baselines (2026-11-25, after the grammar gate). A change must not lower "correct
 | Check | Baseline |
 |---|---|
 | Conversation | short 5/7, old shown 0/3; long 80/80, 0/53, ~52 tokens per question |
-| Learning: facts right scope / junk | DEV 39/42, 1/51; HELDOUT 38/41, 0/39; updates 19/19; retrieval 5/8 |
+| Learning: facts right scope / junk | DEV 39/43, 2/66; HELDOUT 38/41, 0/39; updates 28/28; retrieval 5/8 |
 | Learning `--real` (private, `data/eval/`) | sample 1: 0/2, junk 2/119; fresh sample: 3/3, junk 5/118 (both have now been used for error analysis: label a new sample for an unbiased number) |
-| Stream, seeds 1–5 mean | correct per week 26.0, 26.2, 23.6, 23.2 /30; stale 0, 0.8, 6.8, 7.4; leaks 0; repeat mistakes 13.4; junk 10.8 of ~467; missed 0 of 29; 1.8 notes in the 220-prompt session; 3.7 tokens per work prompt |
-| Scale, 12 projects × 24 weeks | correct 77, 72, 71, 70, 69, 70 % at weeks 4–24; stale 5/12 at week 24; leak ≤1; junk 195 of ~8,500 noise; missed 3 of 112; 33 tokens per question; hook 10 ms median, 19 ms p95 |
+| Stream, seeds 1–5 mean | correct per week 26.0, 26.2, 24.0, 23.4 /30; stale 0, 0.2, 2.4, 3.2; leaks 0; repeat mistakes 13.4; junk 10.8 of ~467; missed 0 of 29; 1.8 notes in the 220-prompt session; 3.7 tokens per work prompt |
+| Scale, 12 projects × 24 weeks | correct 77, 73, 72, 71, 71, 72 % at weeks 4–24; stale 2/12 at week 24; leak ≤1; junk 195 of ~8,500 noise; missed 3 of 112; 33 tokens per question; hook 10 ms median, 19 ms p95 |
 | Real replay (1,033 prompts) | 46 notes stored, ~7.9 tokens added per prompt, hook 18 ms median |
 | Stream, seed 7 | 24, 24, 23, 22 /30; stale 0, 1/2, 3/10, 4/11; junk 14 (8 notes); hook 9 ms median |
 

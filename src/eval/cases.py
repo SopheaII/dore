@@ -271,6 +271,17 @@ UPDATES = [
     ("I visited Japan in 2019.", "I visited Korea in 2022.", False, "multi-value"),
     ("Sok reviews the backend PRs.", "Dara reviews the backend PRs.", False, "different subject"),
     ("We fixed bug 12 in the parser.", "We fixed bug 13 in the parser.", False, "events pile up"),
+    # reworded updates with a change word (now, switched, moved, migrated, instead...)
+    ("We cache with Memcached.", "We switched the cache to Redis.", True, "reworded change"),
+    ("The test runner is jest.", "actually the test runner is vitest now", True, "reworded change"),
+    ("Logins use Auth0.", "We moved login to Clerk.", True, "reworded change"),
+    ("The database is MariaDB.", "We migrated the database to PostgreSQL.", True, "reworded change"),
+    ("The API runs on port 8080.", "The dev server port is 3001 now.", False, "change word, other subject"),
+    ("We use Kafka for queues.", "We switched the cache to Redis.", False, "change word, other thing"),
+    ("I have a cat named Pepper.", "I have a cat named Salt now.", False, "change word, multi-value"),
+    ("The docs are hosted on Netlify.", "We moved the blog to Vercel.", False, "change word, other subject"),
+    ("The search-api service runs on port 4100.", "The search-worker service now runs on port 4200.", False,
+     "change word, other identifier"),
 ]
 
 # Retrieval: (stored note, question asked later, style). The note should be shown for the question.

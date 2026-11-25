@@ -109,3 +109,15 @@ def test_generic_note_does_not_crowd_out_the_answer():
     s.add("How do I set this up? What version are we on? Where is the config file?", trust="verified", project="p")
     hits = s.search("Which queue do jobs go through?", k=2, project="p", touch=False)
     assert hits[0].content == "Jobs go through Kafka" and hits[0].focus >= hits[-1].focus
+
+
+def test_reworded_updates_with_a_change_word():
+    from dore.memory.rules import changes
+    assert changes("Our CI runs on Jenkins.", "We moved CI to Buildkite.")
+    assert changes("The dev database port is 5432", "we switched the database port to 6543")
+    assert changes("Emails go through Mailgun.", "emails are sent with Postmark now")
+    # keep both
+    assert not changes("The web-api pod has 2 replicas.", "The web-worker pod now has 4 replicas.")   # other name
+    assert not changes("Our CI runs on Jenkins.", "We moved the docs to Netlify.")                  # other thing
+    assert not changes("We have a staging cluster in Frankfurt.", "We have a staging cluster in Oregon now.")  # multi
+    assert not changes("Our CI runs on Jenkins.", "Our CI is fast.")                                # no change word

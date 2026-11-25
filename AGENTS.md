@@ -44,6 +44,6 @@ Success = `bench stream`: correct up, stale/leak/junk/repeat mistakes down, toke
 2. Learn from Claude's side at SessionEnd: only strong signals (a fail-then-pass fix, commit messages, what the user accepted), local rules, `unverified`, at most ~5 per session.
 3. Forgetting: score (use + recency + trust), decay, archive (never delete; protected exempt), merge similar notes; idle time.
 4. Project -> general promotion: a fact seen or helpful in 2+ projects becomes general (project copies kept, linked); one project's names/paths/IDs never go general; identify a project by git root, not folder name.
-5. Retrieval: switch to `bge-base-en-v1.5` (measured +8 of 100 answered at equal noise; recalibrate all thresholds, re-embed), then likely-question keys per note (biggest remaining miss: "How long should your answers be?" vs "I prefer short answers"), then fact slots + profile card (once per session), small reranker.
+5. Retrieval: likely-question keys per note (`bge-base-en-v1.5` measured: +1 to +3 points end to end for 2x hook time, not adopted) (biggest remaining miss: "How long should your answers be?" vs "I prefer short answers"), then fact slots + profile card (once per session), small reranker.
 6. Other languages: multilingual parser + embedder (Khmer is neither learned nor found today).
 

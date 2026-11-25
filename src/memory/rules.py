@@ -198,3 +198,58 @@ def _query_terms(text: str) -> list[str]:
 def _is_identifier(term: str) -> bool:
     """Codes, IPs, versions, ports...: exact matches on these matter more than meaning."""
     return any(c.isdigit() for c in term) or any(c in ".:/-" for c in term)
+
+
+# Words that say "this replaced that" (a closed class of change-of-state markers).
+CHANGE_WORDS = frozenset("""now switched switch switching moved move migrated migrate changed change replaced
+replace instead anymore longer upgraded upgrade downgraded actually""".split())
+# Light verbs carry no topic: "Logins use Auth0" is about logins.
+LIGHT_VERBS = frozenset("use uses used using run runs running go goes through via need needs requires".split())
+# Self-references carry no topic: "This project needs Node 24" is about Node.
+GENERIC = frozenset("project app application repo repository codebase here locally this".split())
+_VERBISH = SINGLE_VALUE | LIGHT_VERBS | frozenset("is are was were".split())
+
+
+def _topic(text: str) -> set[str]:
+    """Topic words of a note (4-letter stems): no stopwords, prepositions, change or light words, values."""
+    out = set()
+    words = _WORD.findall(text.lower())
+    # The subject is what comes before the first verb ("The API runs on ...": API is the topic; "We use
+    # SQS for queues": SQS is a value). Without a known verb, the first three words.
+    verb = next((i for i, w in enumerate(words) if w in _VERBISH), 3)
+    # "We moved CI to Buildkite": what was changed (before "to") is the topic, after "to" the value.
+    change = next((i for i, w in enumerate(words) if w in CHANGE_WORDS), None)
+    if change is not None and "to" in words[change:]:
+        verb = change + words[change:].index("to")
+    for i, w in enumerate(words):
+        if (w in STOPWORDS or w in PREPOSITIONS or w in CHANGE_WORDS or w in LIGHT_VERBS or w in FRAME_FILLER
+                or w in GENERIC or len(w) < 2):
+            continue
+        if _value_like((w,), text) and (i >= verb or any(c.isdigit() for c in w)):
+            continue
+        # Identifiers are compared whole: "billing-api" and "billing-worker" are two services.
+        out.add(w if any(c in ".:/-_" for c in w) or any(c.isdigit() for c in w) else w[:4])
+    return out
+
+
+def _values(text: str) -> set[str]:
+    return {w for w in _WORD.findall(text.lower()) if _value_like((w,), text)}
+
+
+def changes(old: str, new: str) -> bool:
+    """True when `new` says, in other words, that the value in `old` changed: it has a change word
+    ("We switched the cache to Redis" after "We cache with Memcached"), covers every topic word of
+    `old`, and both name a concrete value that differs. Multi-value verbs keep both. Only called for
+    notes already close in meaning (`MemoryStore._supersede`)."""
+    words = set(_WORD.findall(new.lower()))
+    if not words & CHANGE_WORDS or words & MULTI_VALUE or set(_WORD.findall(old.lower())) & MULTI_VALUE:
+        return False
+    topic_old, topic_new = _topic(old), _topic(new)
+    # Most of the old topic must be named again ("dev server port" -> "dev port"; "API ... port" is not
+    # covered by "dev server port").
+    if not topic_old or len(topic_old & topic_new) / len(topic_old) < 0.6:
+        return False
+    if any(any(c in ".:/-_" or c.isdigit() for c in w) for w in topic_old - topic_new):
+        return False  # a named thing ("search-api") must be the same thing
+    va, vb = _values(old), _values(new)
+    return bool(va) and bool(vb) and va != vb and not vb <= va
