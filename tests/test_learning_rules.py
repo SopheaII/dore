@@ -121,3 +121,19 @@ def test_reworded_updates_with_a_change_word():
     assert not changes("Our CI runs on Jenkins.", "We moved the docs to Netlify.")                  # other thing
     assert not changes("We have a staging cluster in Frankfurt.", "We have a staging cluster in Oregon now.")  # multi
     assert not changes("Our CI runs on Jenkins.", "Our CI is fast.")                                # no change word
+
+
+@needs_parser
+def test_recheck_archives_old_junk_but_keeps_facts_and_standing_rules(tmp_path):
+    from dore.learn.recheck import recheck
+    from dore.memory import MemoryStore
+    from dore.memory.embed import HashEmbedder
+    s = MemoryStore(tmp_path / "m.db", None, HashEmbedder())
+    keep = ["Our worker queue is Kafka.", "Never push straight to main.", "I use a Kinesis 360 keyboard."]
+    junk = ["now enable it and put it on the status bar too", "● Agents   Claude · Cursor", "why the deploy slow or not"]
+    ids = {t: s.add(t, kind="statement", source="user", trust="verified", project="p") for t in keep + junk}
+    p = s.add("● pinned UI line", kind="statement", source="user", trust="verified", protected=True)
+    found = {i for i, _ in recheck(s, apply=True)}
+    assert found == {ids[t] for t in junk}
+    assert all(not s.get(ids[t]).archived for t in keep) and not s.get(p).archived
+    assert all(s.get(ids[t]).archived for t in junk)  # archived, not deleted

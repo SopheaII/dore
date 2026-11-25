@@ -42,7 +42,7 @@ Success = `bench stream`: correct up, stale/leak/junk/repeat mistakes down, toke
 
 1. Mostly done (2026-11-25; real replay 70 -> 46 notes, every real fact kept; echo check; hub correction). Left: reworded updates keep both notes (stale 7/11 in weeks 3–4); rephrased questions miss (retrieval 5/8, moves to step 5). Details: [memory-learning](.agents/rules/memory-learning.md).
 2. Learn from Claude's side at SessionEnd: only strong signals (a fail-then-pass fix, commit messages, what the user accepted), local rules, `unverified`, at most ~5 per session.
-3. Forgetting: score (use + recency + trust), decay, archive (never delete; protected exempt), merge similar notes; idle time.
+3. Forgetting (first part done 2026-11-25: `dore.learn.recheck` archives notes today's rules would not store). Left: score (use + recency + trust), decay, archive (never delete; protected exempt), merge similar notes; idle time.
 4. Project -> general promotion: a fact seen or helpful in 2+ projects becomes general (project copies kept, linked); one project's names/paths/IDs never go general; identify a project by git root, not folder name.
 5. Retrieval: likely-question keys per note (`bge-base-en-v1.5` measured: +1 to +3 points end to end for 2x hook time, not adopted) (biggest remaining miss: "How long should your answers be?" vs "I prefer short answers"), then fact slots + profile card (once per session), small reranker.
 6. Other languages: multilingual parser + embedder (Khmer is neither learned nor found today).

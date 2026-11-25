@@ -179,7 +179,7 @@ def structured_line(line: str) -> bool:
         return True
     if "&&" in t or "||" in t or " | " in t or re.match(r"^\s*[\w./-]+: [\w./ -]+: ", t):  # shell, "bash: x: not found"
         return True
-    if re.search(r"[·▎│┃•►▶]", t):  # UI separators and quote bars
+    if re.search(r"[·▎│┃•►▶\u2500-\u257f\u25a0-\u25ff]", t):  # UI separators, box drawing, shapes
         return True
     symbols = sum(t.count(c) for c in "{}[]();=<>$|\\")
     return symbols / len(t) > 0.08
