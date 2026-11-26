@@ -112,7 +112,9 @@ function installPython(upgrade) {
 // waits for a hook (20 s), so the user's first message would be lost. Do it here instead.
 function warmUp() {
   say("downloading the search model and opening the memory (one time, about 30 s)...");
-  const code = "from dore.config import Config\nfrom dore.integrations.hooks import open_store\n"
+  // fastembed turns progress bars back on, and huggingface_hub warns that the env var wins: hide that.
+  const code = "import warnings\nwarnings.filterwarnings('ignore', message='Cannot enable progress bars')\n"
+    + "from dore.config import Config\nfrom dore.integrations.hooks import open_store\n"
     + "from dore.learn.grammar import nlp\nopen_store(Config()).close()\nnlp()\n";
   const r = spawnSync(VENV_PY, ["-c", code], {
     stdio: ["ignore", "ignore", "inherit"],
