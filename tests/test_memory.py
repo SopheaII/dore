@@ -360,3 +360,51 @@ def test_project_update_replaces_a_general_note(store):
     old = store.add("Our staging server runs on port 8443", trust="verified", project="")
     new, = store.add_many(["Our staging server runs on port 9443"], trust="verified", project="shop", supersede=True)
     assert store.get(old).replaced_by == new
+
+
+def test_a_general_fact_changed_in_a_project_stays_general(store):
+    """Scope S2: the update lives where the fact lives, so every project sees the new value."""
+    old = store.add("Our staging server runs on port 8443", trust="verified", project="")
+    new, = store.add_many(["Our staging server runs on port 9443"], trust="verified", project="shop", supersede=True)
+    assert store.get(old).replaced_by == new and store.get(new).project == ""
+    assert [m.id for m in store.search("staging server port", k=3, project="blog")] == [new]
+
+
+def test_a_local_value_hides_the_general_one_only_in_its_project(store):
+    old = store.add("Our staging server runs on port 8443", trust="verified", project="")
+    new, = store.add_many(["In this repo our staging server runs on port 9443"], trust="verified", project="shop",
+                          supersede=True)
+    assert store.get(old).replaced_by is None and store.get(new).project == "shop"
+    assert [m.id for m in store.search("staging server port", k=3, project="shop")] == [new]
+    assert [m.id for m in store.search("staging server port", k=3, project="blog")] == [old]
+
+
+def test_local_value_words():
+    from dore.memory.rules import local_value
+    assert local_value("Here the staging server runs on port 9443")
+    assert local_value("in this repo we use tabs")
+    assert local_value("locally the app listens on 3001")
+    assert not local_value("Our staging server runs on port 9443")
+    assert not local_value("this function returns a list")
+
+
+def test_a_general_fact_changed_in_another_project_is_that_projects_own_value(store):
+    """Scope S3: changed where it was said -> changed for everyone; changed elsewhere -> keep both."""
+    old = store.add("Our staging server runs on port 8443", trust="verified", project="")
+    store.mark_said_in([old], "api")
+    new, = store.add_many(["Our staging server runs on port 9443"], trust="verified", project="shop", supersede=True)
+    assert store.get(old).replaced_by is None and store.get(new).project == "shop"
+    assert [m.id for m in store.search("staging server port", k=3, project="blog")] == [old]
+    newer, = store.add_many(["Our staging server runs on port 7443"], trust="verified", project="api", supersede=True)
+    assert store.get(old).replaced_by == newer and store.get(newer).project == ""
+    assert [m.id for m in store.search("staging server port", k=3, project="shop")] == [new]  # still its own
+    assert [m.id for m in store.search("staging server port", k=3, project="blog")] == [newer]
+
+
+def test_a_value_is_found_by_its_place_not_its_capital_letter():
+    from dore.memory.rules import changes
+    assert changes("The frontend is react", "We moved the frontend to vue")
+    assert changes("Basically the frontend is react", "We switched the frontend to svelte")
+    assert not changes("The backend is django", "We moved the frontend to vue")
+    assert not changes("The frontend is react", "We moved the frontend to the new repo")
+    assert not changes("The cache is redis", "I sent the cache to Dara")

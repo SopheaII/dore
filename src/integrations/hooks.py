@@ -1,27 +1,13 @@
-"""Claude Code hooks: give Claude only what it needs, and learn at zero Claude tokens.
+"""Claude Code hooks: add only the notes a prompt needs, and learn at zero Claude tokens.
 
-    dore-hook prompt   # UserPromptSubmit: add relevant notes to the prompt (or nothing)
-    dore-hook end      # SessionEnd: save the user's own statements from the session log
-
-Why hooks instead of tool calls: every tool call is one more round trip that resends the
-whole conversation (~15-25k tokens). The prompt hook runs locally before Claude sees the
-prompt, and prints nothing when nothing is worth adding.
-
-Nothing the user types is lost: sentences no rule stores as a note are kept as raw memory
-(`memory.episodes`), consolidated while idle (`consolidate`) and recalled on a strong question match.
-
-What the prompt hook adds (measured thresholds, bge-small; see reports/token-design.md):
-- rules of this project and general rules ("keep code Python 3.9 compatible", "max discount
-  50%"): once per session, at the first prompt, because they apply to all work;
-- other notes only on a strong match (similarity >= 0.65 and within 0.05 of the best match, or an exact
-  ID such as SRV-4471),
-  each note at most once per session. Unrelated prompts scored up to 0.62.
+`dore-hook prompt` (UserPromptSubmit) and `dore-hook end` (SessionEnd). Nothing is added when nothing matches.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
 import time
@@ -33,7 +19,9 @@ from dore.learn.statements import (ASKS_START, CORRECTION_LEAD, IMPLICIT_FEEDBAC
                                    REASK_SIMILARITY,
                                    REQ_MAX_CHARS, episode_sentences, message_facts, requirement_text, scope_for,
                                    user_facts)
-from dore.memory import SEARCHABLE_SQL, MemoryStore, episodes, same_frame
+from dore.integrations import update
+from dore.integrations.project import display_name, project_of
+from dore.memory import SEARCHABLE_SQL, MemoryStore, episodes, on_trial, replaces, same_frame
 
 
 def _rules_version() -> str:
@@ -79,8 +67,21 @@ RULE = re.compile(r"\b(must|always|never|don'?t|do not|should|shouldn'?t|keep\b.
 # notes count as rules only with these stronger words.
 PERSONAL_RULE = re.compile(r"\b(always|never|prefer|must|convention|standard|policy)\b", re.I)
 def _project(cwd: str | None) -> str:
-    d = Path(cwd or ".").resolve()
-    return "" if d in (Path.home().resolve(), Path("/")) else d.name
+    """The project key of a session started in `cwd`: its git repo (`integrations.project`)."""
+    return project_of(cwd).key
+
+
+_ADOPTED: set = set()  # places whose older keys were already moved, in this process
+
+
+def resolve_project(store: MemoryStore, cwd: str | None, start: str | None = None) -> str:
+    """Project key for `cwd`; on first use, moves notes stored under older keys for the same place."""
+    p = project_of(cwd, start)
+    if p not in _ADOPTED:
+        _ADOPTED.add(p)
+        if p.aliases:
+            store.rename_project(list(p.aliases), p.key)
+    return p.key
 
 
 class _State:
@@ -124,35 +125,32 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
         rows = store.db.execute(
             f"SELECT id, content, project, created FROM memories WHERE {SEARCHABLE_SQL} AND trust='verified' "
             "AND project IN (?, '') ORDER BY created DESC LIMIT 200", (project,)).fetchall()
-        # Not the rule the user just typed (already in `shown`): Claude has their message.
-        rules = [(i, c, p, t) for i, c, p, t in rows if i not in shown
+        trial = {m.id for m in store.get_many([r[0] for r in rows]).values() if on_trial(m)}
+        rules = [(i, c, p, t) for i, c, p, t in rows if i not in shown and i not in trial
                  and RULE.search(c) and (not PERSONAL.search(c) or PERSONAL_RULE.search(c))][:MAX_RULES]
         for i, c, p, t in rules:
             cands.append((i, _line(i, c, created=t), False))
             shown.add(i)
     hits = store.search(prompt[:2000], k=MAX_NOTES + len(shown), min_similarity=STRONG,
                         project=project or None, touch=False)
-    hits = [m for m in hits if _showable(m)]
+    asked = _asks(prompt)
+    hits = [m for m in hits if _showable(m) and (asked or not on_trial(m))]
+    own = [m for m in hits if m.project == project and project]
+    hits = [m for m in hits if m.project or not any(replaces(m.content, k.content) or replaces(k.content, m.content)
+                                                    for k in own)]
     if hits:  # keep notes near the best match; a note below STRONG got in by an exact ID/keywords
         top = max(m.focus for m in hits)  # hub-corrected (`MemoryStore.search`); STRONG stays on raw similarity
         near = [m for m in hits if m.focus >= top - GAP or m.similarity < STRONG]
-        # Newer wins: a newer note about the same thing as a kept one stays, even below the gap
-        # ("My editor is Helix" after "i use neovim as my editor" scored lower than the old note).
         newer = [m for m in hits if m not in near and m.similarity >= STRONG and m.focus >= top - 2 * GAP and any(
             m.created > k.created and float(store._vector(m.id) @ store._vector(k.id)) >= SAME_THING for k in near)]
         hits = sorted(near + newer, key=lambda m: -m.created if m in newer else 0)  # newer first
     notes = [m for m in hits if m.id not in shown][:MAX_NOTES]
-    if not notes and project:  # nothing here: a very strong match from another project may help
-        notes = [m for m in store.search(prompt[:2000], k=2, min_similarity=0.75, touch=False)
-                 if m.id not in shown and m.project not in (project, "") and _showable(m)][:1]
     for m in notes:
-        label = f" (from project {m.project})" if m.project not in (project, "") else ""
+        label = f" (from project {display_name(m.project)})" if m.project not in (project, "") else ""
         if m.kind == "requirement":
             label += " (your earlier request)" if m.trust != "verified" else " (your repeated request)"
         cands.append((m.id, _line(m.id, m.content, label, m.created,
                                   limit=REQ_MAX_CHARS + 1 if m.kind == "requirement" else MAX_CHARS), True))
-    # Raw memory: a question that strongly matches something the user said in an earlier session that no
-    # rule kept as a note ("rust is the language i care most about"). Same query vector, no new embedding.
     vec = getattr(store, "last_query_vector", None)
     if vec is not None and EPISODE_STRONG <= 1 and _asks(prompt):
         said = set(state.d.get("episodes_shown", []))
@@ -174,7 +172,10 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
         if is_note:
             last_shown.append(mid)
     state.d["shown"] = sorted(shown)
-    state.d["last_shown"] = last_shown  # judged by the user's next prompt (react)
+    state.d["last_shown"] = last_shown  # judged by the user's next prompt (react) and Claude's reply (judge_last)
+    best = max((m for m in notes if m.id in set(last_shown)), key=lambda m: m.similarity, default=None)
+    # Only the best match is on test (a side note beside a better one says nothing); rules too, like any note.
+    state.d["last_trial"] = [best.id] if best is not None and (on_trial(best) or best.kind == "requirement") else []
     if not lines:
         return ""
     return "dore memory (use if relevant; trust user code/instructions over it):\n" + "\n".join(lines)
@@ -226,6 +227,87 @@ def assistant_text(transcript: Path | None, max_bytes: int = 400_000) -> str:
             if isinstance(b, dict) and b.get("type") == "text":
                 out.append(b.get("text", ""))
     return "\n".join(out)
+
+
+def last_reply(transcript: Path | None, max_bytes: int = 400_000) -> str:
+    """Claude's answer to the user's previous message, from the session log ("" without a log)."""
+    if not transcript:
+        return ""
+    try:
+        with open(transcript, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - max_bytes))
+            lines = f.read().decode("utf-8", errors="replace").splitlines()[1:]
+    except OSError:
+        return ""
+    turns: list[list[str]] = [[]]
+    for line in lines:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        content = (ev.get("message") or {}).get("content")
+        if ev.get("type") == "user" and (isinstance(content, str) or any(
+                isinstance(b, dict) and b.get("type") == "text" for b in content or [])):
+            turns.append([])  # a typed message (tool results are also "user" events, without text)
+        elif ev.get("type") == "assistant":
+            turns[-1] += [b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text"]
+    if not turns[-1] and len(turns) > 1:
+        turns.pop()
+    return "\n".join(turns[-1])
+
+
+def reply_words(text: str) -> set[str]:
+    """Content words of a text, cut to 6 letters (so "deploys"/"deployed" match), without stopwords."""
+    from dore.memory.rules import STOPWORDS
+    words = (w.rstrip(".+#-") for w in re.findall(r"[a-z0-9][a-z0-9.+#-]*", text.lower()))  # "R2." -> "r2"
+    return {w[:6] for w in words if w not in STOPWORDS and len(w) > 1}
+
+
+CLEAR_USE = 0.6
+CHANCE = 0.01  # the usual 1% level: the reply would hold these words by luck at most this often
+
+
+def use_check(store: MemoryStore, note: str, prompt: str, reply_set: set[str]) -> tuple[bool, bool]:
+    """(used, testable) for a shown note and Claude's reply; not testable when a match could be luck."""
+    import math
+    new = reply_words(note) - reply_words(prompt)
+    if not new:
+        return False, False
+    n, df = store.reply_counts(new)
+    luck = {w: (df.get(w, 0) + 1) / (n + 2) for w in new}  # chance that a reply contains w
+    if math.prod(luck.values()) > CHANCE:
+        return False, False
+    got = new & reply_set
+    idf = {w: -math.log(luck[w]) for w in new}
+    used = bool(got) and sum(idf[w] for w in got) / sum(idf.values()) >= CLEAR_USE \
+        and math.prod(luck[w] for w in got) <= CHANCE
+    return used, True
+
+
+def judge_last(store: MemoryStore, state: "_State", reply: str) -> list[int]:
+    """Check last prompt's shown notes against Claude's reply: used notes gain a use, unused trial notes
+    count a try (archived after `ARCHIVE_TRIES`). Returns archived ids."""
+    shown, prompt = state.d.get("last_shown", []), state.d.get("last_prompt", "")
+    if not reply:
+        return []
+    key = message_key(reply)
+    if state.d.get("judged") == key:  # one prompt handled twice (helper timeout + inline run)
+        return []
+    state.d["judged"] = key
+    rset = reply_words(reply)
+    gone: list[int] = []
+    if shown:
+        checks = {m.id: use_check(store, m.content, prompt, rset) for m in store.get_many(shown).values()}
+        used = {i for i, (u, _) in checks.items() if u}
+        last_trial = set(state.d.get("last_trial", []))
+        trial = [i for i in shown if i in last_trial and checks.get(i, (False, False))[1]]
+        for i in used - set(trial):
+            store.db.execute("UPDATE memories SET uses = uses + 1 WHERE id=?", (i,))
+        store.db.commit()
+        gone = store.mark_tried(trial, used)
+    store.count_reply(rset)
+    return gone
 
 
 def _norm(text: str) -> str:
@@ -337,6 +419,14 @@ def save_requirement(store: MemoryStore, text: str, project: str, session_ids: s
     return store.add(text, kind="requirement", source="user", trust="unverified", project=project)
 
 
+def similar_fn(store: MemoryStore):
+    """Meaning similarity of two short texts (store's embedder)."""
+    def similar(a: str, b: str) -> float:
+        v = store.embedder.embed([a, b])
+        return float(v[0] @ v[1])
+    return similar
+
+
 def save_facts(store: MemoryStore, facts: list[str], project: str, created: float | None = None) -> list[int]:
     """Store user statements (verified); each replaces older notes it updates. `created`: when it was
     said, for a fact learned later from raw memory."""
@@ -346,6 +436,7 @@ def save_facts(store: MemoryStore, facts: list[str], project: str, created: floa
         group = [f for f in facts if scopes[f] == scope]
         ids += store.add_many(group, kind="statement", source="user", trust="verified", project=scope,
                               supersede=True, keys=[topic_key(f) for f in group], created=created)
+    store.mark_said_in(ids, project)
     return ids
 
 
@@ -357,7 +448,7 @@ def learn_message(store: MemoryStore, msg: str, project: str, echo: str = "",
     `session_ids`: hidden notes this session already saved (a repeat inside one session doesn't make
     them lasting); it grows with this message's."""
     seen = session_ids if session_ids is not None else set()
-    facts = not_echoed(message_facts(msg), echo)
+    facts = not_echoed(message_facts(msg, similar_fn(store)), echo)
     ids = save_facts(store, facts, project)
     episodes.add(store, not_echoed(episode_sentences(msg, facts), echo), project, session, judged=RULES_VERSION)
     req = not_echoed([requirement_text(msg)], echo)
@@ -427,10 +518,11 @@ def react(store: MemoryStore, prompt: str, state: _State) -> str:
     return "reask" if reask else "moved_on"
 
 
-def on_prompt(store: MemoryStore, prompt: str, project: str, state: _State, echo: str = "") -> str:
+def on_prompt(store: MemoryStore, prompt: str, project: str, state: _State, echo: str = "", reply: str = "") -> str:
     """Everything the prompt hook does, in order: judge the last notes, learn the user's new
     statements right away (so a correction counts in this session, not only at its end), then
     pick notes for this prompt. Returns the text to add ("" = nothing, 0 tokens)."""
+    state.d["archived"] = state.d.get("archived", []) + judge_last(store, state, reply)
     state.d["last_signal"] = react(store, prompt, state)
     session_ids = set(state.d.get("saved", []))
     new_ids = learn_message(store, prompt, project, echo, session_ids, state.session)
@@ -459,11 +551,13 @@ def open_store(cfg: Config) -> MemoryStore:
 
 def run_event(store: MemoryStore, cfg: Config, event: str, data: dict) -> str:
     """Handle one hook event; returns the text to print ("" = add nothing)."""
-    project = _project(data.get("cwd"))
+    project = resolve_project(store, data.get("cwd"), data.get("project_dir"))
     if event == "prompt":
         state = _State(cfg.data_dir, str(data.get("session_id", "")))
         tp = data.get("transcript_path")
-        text = on_prompt(store, str(data.get("prompt", "")), project, state, echo=assistant_text(Path(tp) if tp else None))
+        log = Path(tp) if tp else None
+        text = on_prompt(store, str(data.get("prompt", "")), project, state, echo=assistant_text(log),
+                         reply=last_reply(log))
         state.save()
         return text
     if event == "end" and data.get("transcript_path"):
@@ -472,6 +566,7 @@ def run_event(store: MemoryStore, cfg: Config, event: str, data: dict) -> str:
                      set(state.d.get("learned", [])) | set(state.d.get("handled", [])), set(state.d.get("saved", [])),
                      str(data.get("session_id", "")))
         consolidate(store)
+        update.check(cfg.data_dir)  # at most once a day, 3 s timeout, update runs detached; SessionEnd allows 60 s
     return ""
 
 
@@ -492,7 +587,7 @@ def consolidate(store: MemoryStore, limit: int = 64) -> dict:
     learned = 0
     todo = episodes.to_judge(store, RULES_VERSION, limit)
     for eid, content, project, created in todo:
-        facts = [f for f in message_facts(content) if not _known(store, f)]
+        facts = [f for f in message_facts(content, similar_fn(store)) if not _known(store, f)]
         ids = save_facts(store, facts, project, created=created) if facts else []
         episodes.mark_judged(store, eid, RULES_VERSION, scope_for(content, project), tells(content),
                              ids[0] if ids else None)
@@ -510,6 +605,8 @@ def main(argv: list[str] | None = None):
         data = json.loads(sys.stdin.read() or "{}")
     except ValueError:
         data = {}
+    if os.environ.get("CLAUDE_PROJECT_DIR"):
+        data.setdefault("project_dir", os.environ["CLAUDE_PROJECT_DIR"])
     run_inline(event, data)
 
 

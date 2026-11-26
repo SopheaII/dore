@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { homedir } from "node:os"
-import { basename, join, resolve } from "node:path"
+import { join, resolve } from "node:path"
 import { createInterface } from "node:readline"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { tool, type Plugin } from "@opencode-ai/plugin"
@@ -13,10 +13,7 @@ type Pending = {
 
 const doreHome = () => process.env.DORE_HOME || join(homedir(), "Documents", "dore")
 
-const projectFor = (directory: string) => {
-  const d = resolve(directory || ".")
-  return d === resolve(homedir()) || d === "/" ? "" : basename(d)
-}
+const projectFor = (directory: string) => resolve(directory || ".")
 
 let child: ChildProcessWithoutNullStreams | null = null
 const pending = new Map<string, Pending>()

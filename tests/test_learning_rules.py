@@ -1,5 +1,4 @@
-"""What is learned from any writing style: grammar gate, paste shapes, scope, updates.
-Sentences here are new (not from src/eval/cases.py), so these tests also check generalisation."""
+"""Learning rules on new sentences (not from cases.py), so these also check generalisation."""
 
 import pytest
 
@@ -300,3 +299,29 @@ def test_topic_key_vector_is_searched_kept_in_step_and_backfilled(tmp_path):
     s2 = MemoryStore(tmp_path / "m.db", tmp_path / "m.faiss", HashEmbedder())
     assert s2.key_index.ntotal == 2 and (tmp_path / "m.keys.faiss").exists()  # saved with the main index
     s2.close()
+
+
+def test_two_clauses_with_their_own_subjects_are_two_facts():
+    from dore.learn.statements import user_facts
+    assert user_facts("the api is on port 3000 and the worker is on port 3001") == [
+        "The api is on port 3000", "The worker is on port 3001"]
+    assert user_facts("the queue is SQS and the cache is Redis") == ["The queue is SQS", "The cache is Redis"]
+    assert user_facts("I have a dog and a cat") == ["I have a dog and a cat"]
+    assert user_facts("we use Postgres and it runs on RDS") == ["We use Postgres and it runs on RDS"]
+
+
+def test_a_judgement_half_is_kept_only_when_it_parallels_a_value():
+    from dore.learn.statements import user_facts
+    near, far = (lambda a, b: 0.72), (lambda a, b: 0.5)
+    assert user_facts("the frontend is react and the backend is django", near) == [
+        "The frontend is react", "The backend is django"]
+    assert user_facts("the frontend is react and the backend is django", far) == ["The backend is django"]
+    assert user_facts("the page is slow and the api is on port 3000") == ["The api is on port 3000"]
+
+
+def test_a_side_clause_before_the_fact_is_dropped():
+    from dore.learn.statements import user_facts
+    assert user_facts("heads up, the db is postgres 16") == ["The db is postgres 16"]
+    assert user_facts("quick note, we use pnpm") == ["We use pnpm"]
+    assert user_facts("Locally, the app listens on 3001") == ["Locally, the app listens on 3001"]
+    assert user_facts("In production, the api runs on port 443") == ["In production, the api runs on port 443"]

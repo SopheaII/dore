@@ -1,31 +1,16 @@
-"""Line-based bridge for editor plugins (opencode, etc.) that want dore without MCP.
-
-    dore-bridge
-
-Reads one JSON request per line from stdin, writes one JSON response per line to stdout.
-The embedder and store are loaded once and kept warm, so per-message hooks cost milliseconds
-instead of the ~1.5 s of starting a new process every time.
-
-Requests: {"id": any, "op": "...", ...}
-  brief   project                 -> short session-start summary (SQLite only)
-  prompt  prompt, project, session_id -> notes worth adding before this prompt ("" if none)
-  learn   messages, project       -> save the user's own statements from these messages
-  recall  query, project, k       -> formatted search hits (or "#<id>" for one full note)
-  remember facts, project, user_said -> save facts, return their ids
-  correct correction, wrong_ids, project, user_said
-  close
-
-Every response is {"id": ..., "ok": true, "result": ...} or {"id": ..., "ok": false, "error": "..."}.
-"""
+"""Line-based JSON bridge for editor plugins (opencode): one request per line in, one response per line out."""
 
 from __future__ import annotations
 
 import json
+import re
 import sys
+from pathlib import Path
 
 from dore.learn.statements import ORG, PERSONAL
 from dore.config import Config
-from dore.integrations.hooks import _State, learn_message, message_key, on_prompt
+from dore.integrations.hooks import _State, learn_message, message_key, on_prompt, resolve_project
+from dore.integrations.project import project_of
 from dore.integrations.server import LONG_TEXT, correct_reply, format_hit, session_brief
 
 
@@ -45,6 +30,15 @@ class Bridge:
                                       self.cfg.duplicate_threshold, self.cfg.index_save_interval)
         return self._store
 
+    def project(self, req: dict, store: bool = True) -> str:
+        """The request's project: a folder path (the plugin sends its directory) becomes that folder's repo
+        key (`integrations.project`); any other value is a project key given by the caller."""
+        p = str(req.get("project") or "")
+        if p.startswith(("/", "~")) or re.match(r"^[A-Za-z]:[\\/]", p):
+            p = str(Path(p).expanduser())
+            return resolve_project(self.store(), p) if store else project_of(p).key
+        return p
+
     def scope(self, project: str, text: str = "") -> str:
         """Explicit project wins; otherwise facts about the user or organisation are general."""
         if project:
@@ -52,17 +46,17 @@ class Bridge:
         return "" if text and (PERSONAL.search(text) or ORG.search(text)) else project
 
     def brief(self, req: dict) -> str:
-        return session_brief(self.cfg.db_path, str(req.get("project") or ""))
+        return session_brief(self.cfg.db_path, self.project(req, store=False))
 
     def prompt(self, req: dict) -> str:
         state = _State(self.cfg.data_dir, str(req.get("session_id") or ""))
-        text = on_prompt(self.store(), str(req.get("prompt") or ""), str(req.get("project") or ""), state)
+        text = on_prompt(self.store(), str(req.get("prompt") or ""), self.project(req), state)
         self._learned.update(state.d.get("learned", []) + state.d.get("handled", []))
         state.save()
         return text
 
     def learn(self, req: dict) -> list[int]:
-        project = str(req.get("project") or "")
+        project = self.project(req)
         # Messages the prompt op already learned from are skipped (no double counting).
         msgs = [str(m) for m in req.get("messages") or [] if message_key(str(m)) not in self._learned]
         if not msgs:
@@ -83,7 +77,7 @@ class Bridge:
             except KeyError:
                 return "no such memory"
             return format_hit(m).split("] ", 1)[0] + "] " + m.content
-        project = self.scope(str(req.get("project") or "")) or None
+        project = self.scope(self.project(req)) or None
         k = max(1, min(int(req.get("k") or 3), 10))
         hits = store.search(q, k=k, min_similarity=0.5, project=project)
         return "\n".join(format_hit(m) for m in hits) if hits else "nothing relevant in memory"
@@ -91,7 +85,7 @@ class Bridge:
     def remember(self, req: dict) -> str:
         from dore.memory.ingest import ingest_text
 
-        project = str(req.get("project") or "")
+        project = self.project(req)
         user_said = bool(req.get("user_said"))
         trust, source = ("verified", "user") if user_said else ("unverified", "agent")
         store = self.store()
@@ -108,7 +102,7 @@ class Bridge:
         return "saved " + " ".join(f"#{i}" for i in ids) if ids else "nothing to save"
 
     def correct(self, req: dict) -> str:
-        project = self.scope(str(req.get("project") or ""), str(req.get("correction") or ""))
+        project = self.scope(self.project(req), str(req.get("correction") or ""))
         user_said = bool(req.get("user_said"))
         store = self.store()
         done, refused = store.demote(list(req.get("wrong_ids") or []), by_user=user_said)

@@ -300,4 +300,23 @@ def test_rule_just_typed_is_not_echoed_at_session_start(tmp_path):
     from dore.integrations.hooks import on_prompt
     s = make(tmp_path)
     assert on_prompt(s, "We never push straight to main.", "p", _State(tmp_path, "new")) == ""
-    assert "never push" in on_prompt(s, "hello again, let's start", "p", _State(tmp_path, "next"))  # later sessions see it
+    assert "never push" not in on_prompt(s, "hello again, let's start", "p", _State(tmp_path, "next"))
+    on_prompt(s, "We never push straight to main.", "p", _State(tmp_path, "again"))
+    assert "never push" in on_prompt(s, "hello again, let's start", "p", _State(tmp_path, "later"))
+
+
+def test_another_projects_note_is_never_shown(tmp_path):
+    """No cross-project fallback (scope S2): it showed one project's values in another."""
+    s = make(tmp_path)
+    s.add("images live in bucket shop-assets on cloudflare r2", kind="fact", trust="verified", project="shop")
+    out = prompt_context(s, "where do images live in bucket shop-assets?", "blog", _State(tmp_path, "b"))
+    assert "shop-assets" not in out
+
+
+def test_this_projects_own_value_wins_whatever_was_said_first(tmp_path):
+    s = make(tmp_path)
+    s.add("the staging port is 7000", kind="fact", trust="verified", project="shop")
+    s.add("the staging port is 9443", kind="fact", trust="verified", project="")
+    out = prompt_context(s, "the staging port is", "shop", _State(tmp_path, "a"))
+    assert "7000" in out and "9443" not in out
+    assert "9443" in prompt_context(s, "the staging port is", "blog", _State(tmp_path, "b"))

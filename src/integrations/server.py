@@ -1,16 +1,4 @@
-"""dore memory for Claude Code and other MCP clients.
-
-Two ways to run it; both share the same memory.db, so every session sees every other
-session's memories:
-
-    dore-server --stdio     # started by Claude Code itself (plugin or `claude mcp add`),
-                            # one small process per session, nothing to keep running
-    dore-server             # one shared HTTP server: http://127.0.0.1:8765/mcp
-
-Tools are few and their descriptions short, because every client pays for them in
-tokens on every request. Trust rules (CLAUDE.md) apply to every client: what an agent
-writes in its own words is `unverified`; only facts the user stated are `verified`.
-"""
+"""dore memory as an MCP server: `dore-server --stdio`, or HTTP on 127.0.0.1:8765."""
 
 from __future__ import annotations
 
@@ -27,6 +15,7 @@ from mcp.server.mcpserver import MCPServer
 from dore.config import Config
 from dore.learn.statements import ORG, PERSONAL
 from dore.memory.ingest import ingest_text
+from dore.integrations.project import display_name, project_of
 from dore.memory import SEARCHABLE_SQL, Memory, MemoryStore
 
 # Sent to every client when it connects (Claude Code puts it in its system prompt), so users
@@ -54,10 +43,13 @@ def correct_reply(done: list[int], refused: list[int], mid: int) -> str:
     return out
 
 
+def current_folder() -> str:
+    return os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+
+
 def current_project() -> str:
-    """Name of the folder the client was started in ("" for the home folder)."""
-    d = Path(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()).resolve()
-    return "" if d == Path.home().resolve() or d == Path("/") else d.name
+    """Project key of the folder the client was started in: its git repo (`integrations.project`)."""
+    return project_of(current_folder()).key
 
 
 def session_brief(db_path: Path, project: str) -> str:
@@ -76,7 +68,7 @@ def session_brief(db_path: Path, project: str) -> str:
         return "dore memory: not readable right now."
     finally:
         db.close()
-    where = f"project '{project}': {n_proj} notes, plus {n_all - n_proj} general" if project else f"{n_all} notes"
+    where = f"project '{display_name(project)}': {n_proj} notes, plus {n_all - n_proj} general" if project else f"{n_all} notes"
     lines = [f"dore memory ({where}). Use the dore recall tool before saying you don't know about past "
              "decisions, settings, locations or preferences."]
     lines += [f"newest #{i}: {c[:100]}" for i, c in newest]
@@ -163,7 +155,10 @@ def main(argv: list[str] | None = None):
     cfg = Config()
     embedder = FastEmbedder(cfg.embed_model, cache_dir=str(cfg.cache_dir / "fastembed"))
     store = MemoryStore(cfg.db_path, cfg.index_path, embedder, cfg.duplicate_threshold, cfg.index_save_interval)
-    server = build_server(store, default_project=current_project() if args.stdio else "")
+    if args.stdio:
+        from dore.integrations.hooks import resolve_project
+        default = resolve_project(store, current_folder())  # also moves notes stored under its folder name
+    server = build_server(store, default_project=default if args.stdio else "")
     where = "stdio" if args.stdio else f"http://{args.host}:{args.port}/mcp"
     # stderr only: in stdio mode stdout carries the MCP protocol.
     print(f"dore memory server on {where}",

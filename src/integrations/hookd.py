@@ -1,14 +1,4 @@
-"""Background helper for the Claude Code hooks: keeps the embedder and memory index loaded.
-
-    python -m dore.hookd      # started automatically by `dore-hook`; you never need to run it
-
-One instance per data folder (a lock file); listens on data/hook.sock (owner-only; on Windows that file
-holds a 127.0.0.1 port and a token instead, see `hookclient`). Quits after
-30 idle minutes, or after answering a request once dore's own code has changed, so an update
-never leaves an old helper running. While no prompt comes for `IDLE_WORK` seconds it consolidates raw
-memory in small batches (`hooks.consolidate`), so that work never delays a prompt for long. Other processes' writes are picked up before each search
-(`PRAGMA data_version`), exactly as in a fresh process.
-"""
+"""Warm background helper for the hooks: keeps the embedder and index loaded. Started by `dore-hook`."""
 
 from __future__ import annotations
 
@@ -21,6 +11,7 @@ import sys
 from pathlib import Path
 
 from dore.config import Config
+from dore.integrations import update
 from dore.integrations.hookclient import SOCKET_NAME, use_tcp
 
 IDLE_EXIT = 30 * 60
@@ -93,6 +84,8 @@ def serve(cfg: Config, idle_exit: float = IDLE_EXIT, store_factory=None, idle_wo
             except socket.timeout:
                 if time.monotonic() - last_request >= idle_exit:
                     break  # idle: free the RAM
+                if not work_left:  # nothing to consolidate: update dore if npm has newer (once a day, in a thread)
+                    update.check_in_background(cfg.data_dir)
                 if work_left:  # the user is away: consolidate one small batch, then listen again
                     try:
                         done = consolidate(store)

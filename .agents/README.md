@@ -13,6 +13,14 @@ Roadmap: `AGENTS.md`. Known weaknesses: the rule file they belong to.
 - `claude-code.md`: plugin and hook design, token and latency costs
 - `testing.md`: checks from cheapest to dearest, baselines, conventions
 
+## Plans
+
+Designs agreed but not built yet; the roadmap step in `AGENTS.md` links to its plan. When a step is built,
+its measured behaviour moves into the rule file and the plan is updated or removed.
+
+- `junk-notes.md`: fewer junk notes, judged by use over time (roadmap step 3)
+- `scope-redesign.md`: project vs general (roadmap step 4)
+
 ## Skills
 - `learning-change`: procedure before changing learning or retrieval rules
 - `review-learning`: read-only checklist for such a diff

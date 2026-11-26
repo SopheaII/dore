@@ -123,7 +123,7 @@ function warmUp() {
   if (r.status !== 0) fail("could not download the search model. Check your internet connection and run install again.");
 }
 
-function installPlugin() {
+function installPlugin(upgrade) {
   if (!has("claude")) {
     say("Claude Code CLI not found. Install Claude Code, then run: npx dore-memory install");
     return false;
@@ -131,17 +131,27 @@ function installPlugin() {
   // "add" fails when the marketplace is already known; that is fine.
   run("claude", ["plugin", "marketplace", "add", MARKET], { allowFail: true });
   run("claude", ["plugin", "marketplace", "update", "dore-memory"], { allowFail: true });
+  if (upgrade && run("claude", ["plugin", "update", PLUGIN], { allowFail: true })) return true;
   return run("claude", ["plugin", "install", PLUGIN], { allowFail: true });
+}
+
+function recordVersion() {
+  const version = require(path.join(__dirname, "..", "package.json")).version;
+  fs.mkdirSync(DATA, { recursive: true });
+  fs.writeFileSync(path.join(DATA, "install.json"), JSON.stringify({ version }) + "\n");
 }
 
 function install(upgrade) {
   say(`setting up in ${HOME} (first run downloads ~200 MB of packages and models)`);
   installPython(upgrade);
-  const plugin = installPlugin();
+  recordVersion();
+  const plugin = installPlugin(upgrade);
   say("done.");
   console.log(`  memory:  ${DATA}`);
   console.log(`  plugin:  ${plugin ? PLUGIN + " installed" : "not installed (see above)"}`);
   console.log("  Start a new Claude Code session; dore learns from what you tell it.");
+  console.log("  Your memory stays on this computer. Once a day dore asks npm for a newer version and updates");
+  console.log("  itself in the background (nothing about you is sent); turn that off with DORE_NO_AUTO_UPDATE=1.");
 }
 
 function uninstall() {
@@ -175,16 +185,23 @@ function status() {
 const HELP = `Usage: npx dore-memory <command>
 
   install     set up dore and its Claude Code plugin
-  update      upgrade dore to the latest version
+  update      upgrade dore to the latest version (use: npx dore-memory@latest update)
   status      show where dore is and whether the plugin is on
   uninstall   remove the plugin and Python environment (keeps your memory)
 
 Environment: DORE_HOME (default ~/.dore-memory), DORE_PIP_SPEC (what to pip install),
-DORE_MARKETPLACE (where the plugin comes from; default the GitHub repo).`;
+DORE_MARKETPLACE (where the plugin comes from; default the GitHub repo),
+DORE_NO_AUTO_UPDATE=1 (never ask npm for a newer version or update by itself).`;
 
 const cmd = process.argv[2];
 if (cmd === "install") install(false);
-else if (cmd === "update") { installPython(true); installPlugin(); say("updated."); }
+else if (cmd === "update") {
+  if (fs.existsSync(HOOK)) spawnSync(HOOK, ["quit"], { stdio: "ignore", timeout: 10000 });
+  installPython(true);
+  recordVersion();
+  installPlugin(true);
+  say("updated. Run /reload-plugins in open Claude Code sessions, or start a new one.");
+}
 else if (cmd === "status") status();
 else if (cmd === "uninstall") uninstall();
 else { console.log(HELP); process.exit(cmd && !["-h", "--help", "help"].includes(cmd) ? 1 : 0); }

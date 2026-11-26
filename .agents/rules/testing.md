@@ -23,10 +23,10 @@ Baselines (2026-11-25, after the grammar gate). A change must not lower "correct
 | Check | Baseline |
 |---|---|
 | Conversation | short 5/7, old shown 0/3; long 80/80, 0/53, ~49 tokens per question |
-| Learning: facts right scope / junk | DEV 52/56, 2/73; HELDOUT 38/41, 0/39; updates 35/35; retrieval 9/10 (2026-11-26, clause-end prepositions) |
+| Learning: facts right scope / junk | DEV 58/62, 7/81; HELDOUT 43/46, 3/46 (2026-11-26, + clause split cases); before: DEV 55/59, 7/80; HELDOUT 40/43, 3/45; updates 35/35; retrieval 9/10 (2026-11-26, + 18 quick non-native cases for the junk plan: 8 of 13 such chatter lines stored, 5 of 5 such facts learned; before them DEV 52/56, 2/73, HELDOUT 38/41, 0/39) |
 | Learning `--real` (private, `data/eval/`) | sample 1: 0/2, junk 2/119; fresh sample: 3/3, junk 5/118 (both have now been used for error analysis: label a new sample for an unbiased number) |
-| Stream, seeds 1–5 mean (2026-11-26, place keys, session repeats) | correct per week 28.6, 28.4, 26.2, 26.0 /30; stale 0, 0.4, 2.0, 2.4; leaks 0; repeat mistakes 6.4; junk 10.8 of ~467; missed 0 of 29; 2.0 notes in the 220-prompt session; 3.7 tokens per work prompt |
-| Scale, 12 projects × 24 weeks (2026-11-26, place keys) | correct 86, 81, 80, 80, 80, 81 % at weeks 4–24; stale 2/12 at week 24; leak ≤1; junk 195 of ~8,500 noise; missed 3 of 112; 32 tokens per question, 6.4 per work prompt; hook 11 ms median, 23 ms p95 |
+| Stream, seeds 1–5 mean (2026-11-26, notes on trial + scope S2) | correct per week 28.6, 28.4, 27.6, 27.6 /30; stale 0, 0.4, 2.0, 2.4; leaks 0; repeat mistakes 5.0; junk 10.8 of ~467; missed 0 of 29; 2.0 notes in the 220-prompt session; 0.3 tokens per work prompt |
+| Scale, 12 projects × 24 weeks (2026-11-26, notes on trial + scope S2) | correct 86, 81, 80, 80, 80, 81 % at weeks 4–24; stale 2/12 at week 24; leak ≤1; junk 195 of ~8,500 noise; missed 3 of 112; 29 tokens per question, 0.4 per work prompt (rules on trial); hook 6–7 ms median, 13–17 ms p95 (parse cache) |
 | Real replay (1,036 prompts, 2026-11-26, raw memory on, consolidating between sessions) | 191 rows (notes + hidden requirements), 314 episodes, 7.3 tokens added per prompt, hook 24 ms median, 250 ms p95 |
 | Stream, seed 7 | 24, 24, 23, 22 /30; stale 0, 1/2, 3/10, 4/11; junk 14 (8 notes); hook 9 ms median |
 

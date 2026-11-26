@@ -1,9 +1,4 @@
-"""What to learn from a user's message (rules only, no model).
-
-- `user_facts` / `message_facts`: durable facts in a coding prompt (Claude Code hooks, bridge);
-- `scope_for`: general fact (about the user or the organisation) or one project's fact;
-- question, correction ("No, ...") and feedback rules.
-"""
+"""What to learn from a user's message (rules only, no model): facts, scope, questions, corrections."""
 
 from __future__ import annotations
 
@@ -79,11 +74,15 @@ COMPACT_SUMMARY = re.compile(r"^This session is being continued from a previous 
 ECHO = re.compile(r"\bdore memory\b|^#\d+ \(", re.I)
 
 
-def user_facts(text: str) -> list[str]:
+PARALLEL = 0.6
+
+
+def user_facts(text: str, similar=None) -> list[str]:
     """Durable statements in a coding prompt: no requests, questions, small talk or code.
     With the parser installed, `grammar.fact_text` decides by sentence structure (any wording);
-    otherwise the word rules below are used."""
-    from dore.learn.grammar import complete, fact_text, has_detail, nlp
+    otherwise the word rules below are used. Two clauses with their own subjects become one fact each.
+    `similar(a, b)`: meaning similarity, to keep a clause that parallels a fact."""
+    from dore.learn.grammar import complete, fact_text, has_detail, nlp, split_clauses, strip_lead
     out = []
     for sent in SENTENCE_SPLIT.split(text.strip()):
         sent = sent.strip()
@@ -94,6 +93,14 @@ def user_facts(text: str) -> list[str]:
         fix = CORRECTION_LEAD.match(sent)  # "No, the API uses port 9090" -> "The API uses port 9090"
         if fix and sent[fix.end():].strip():
             sent = sent[fix.end():].strip()
+        sent = strip_lead(sent)
+        parts = [] if sent.endswith("?") else split_clauses(sent)
+        if parts and any(v == "fact" for _, v, _ in parts):
+            fact = next(g for _, v, g in parts if v == "fact")
+            out += [t for t, v, g in parts
+                    if (v == "fact" or (v == "maybe" and similar is not None and similar(g, fact) >= PARALLEL))
+                    and complete(t) and not ECHO.search(t) and not NOT_A_FACT.match(t)]
+            continue
         lead = MEMORY_LEAD_IN.match(sent)
         if lead:
             sent = sent[lead.end():].rstrip("?").strip()
@@ -154,7 +161,7 @@ def structured_line(line: str) -> bool:
     return symbols / len(t) > 0.08
 
 
-def message_facts(msg: str) -> list[str]:
+def message_facts(msg: str, similar=None) -> list[str]:
     """Facts in one user message; none for a paste (an article, a log, the assistant's output).
     Tagged blocks (<pasted_content>, <task-notification>, ...) are not the user's words; a message
     of 3+ lines is a paste, whatever its words."""
@@ -166,7 +173,7 @@ def message_facts(msg: str) -> list[str]:
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if len(lines) >= 3 or (len(lines) == 2 and any(structured_line(ln) for ln in lines)):
         return []
-    found = user_facts("\n".join(ln for ln in lines if not structured_line(ln)))
+    found = user_facts("\n".join(ln for ln in lines if not structured_line(ln)), similar)
     return found if len(found) <= MAX_MSG_FACTS else []
 
 

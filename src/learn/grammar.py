@@ -1,21 +1,4 @@
-"""Is a sentence a lasting fact? Decided by its grammar (spaCy parse), not by lists of topic or
-action words, so it works for any verb, any subject and many writing styles (measured on held-out
-sets in `dore.eval.learning`).
-
-Rules use only:
-- sentence structure: questions (question word, inverted auxiliary, "... or not"), commands
-  (a base-form verb with no subject, whatever the verb), fragments (no subject), a subject that
-  is only "it/this/that" (its meaning is in the conversation, not in the note);
-- small closed word classes (grammatical categories that don't grow with new topics): wanting
-  (want, need, would like...), thinking/perceiving (think, guess, feel, saw...), appearance
-  (look, seem...), always/never (a standing rule), politeness markers (please, pls, kindly);
-- whether the sentence names a concrete detail (a name, number or identifier): an evaluation
-  ("the page looks weird") or a one-off event ("the build passed this time") without one is not
-  worth remembering.
-
-English only (the parser and `bge-small-en`). Without spaCy, `is_fact` returns None and the old
-word rules in `statements.py` are used.
-"""
+"""Is a sentence a lasting fact? Decided by its spaCy parse (structure and small closed word classes), not topic lists. English only."""
 
 from __future__ import annotations
 
@@ -80,6 +63,21 @@ FIRST_PERSON_START = re.compile(r"^(?:i|i'm|we|we're|my|our)\b", re.I)
 CONNECTIVE = re.compile(r"^(?:so|since|because|but|and|as)\s+", re.I)
 
 
+class _Cached:
+    """The parser with recent parses cached: several checks read the same sentence. Docs are read-only."""
+
+    def __init__(self, pipeline, size: int = 256):
+        from functools import lru_cache
+        self._pipeline = pipeline
+        self._parse = lru_cache(maxsize=size)(pipeline)
+
+    def __call__(self, text: str):
+        return self._parse(text)
+
+    def __getattr__(self, name):
+        return getattr(self._pipeline, name)
+
+
 def nlp():
     """The parser, loaded once (~0.5 s); None if spaCy or its English model is not installed."""
     global _NLP, _TRIED
@@ -89,7 +87,7 @@ def nlp():
             import spacy
             # md, not sm: sm read "The auth-web service runs on port 7710" as a noun phrase and lost
             # the fact (2026-11-25); md costs the same per sentence (~1 ms), ~0.6 s to load once.
-            _NLP = spacy.load("en_core_web_md", disable=["ner"])
+            _NLP = _Cached(spacy.load("en_core_web_md", disable=["ner"]))
         except Exception:  # not installed: callers fall back to word rules
             _NLP = None
     return _NLP
@@ -301,6 +299,62 @@ def fact_text(sentence: str) -> str | None:
                 return text[:1].upper() + text[1:]
         break
     return ""
+
+
+def strip_lead(sentence: str) -> str:
+    """Without a subjectless lead-in before the comma ("heads up, the db is postgres 16")."""
+    parser = nlp()
+    if parser is None or "," not in sentence:
+        return sentence
+    doc = parser(sentence)
+    root = next(iter(doc.sents)).root
+    subj = [c for c in root.children if c.dep_ in SUBJ]
+    for c in root.lefts:
+        if c.dep_ not in ("advcl", "npadvmod", "intj") or not subj:
+            continue
+        end = c.right_edge.i + 1
+        if (end < len(doc) and doc[end].text == "," and end < subj[0].left_edge.i
+                and not any(k.dep_ in SUBJ or k.dep_ in ("dobj", "attr", "acomp", "oprd", "ccomp", "xcomp", "prep")
+                            for k in c.subtree if k.i != c.i)
+                and not _detail(list(c.subtree))):  # "keep your answers short, ..." is an instruction: kept
+            rest = doc[end + 1:].text.strip()
+            return rest[:1].upper() + rest[1:] if rest else sentence
+    return sentence
+
+
+def split_clauses(sentence: str) -> list[tuple[str, str, str]]:
+    """Split two clauses with their own subjects: [(text, verdict, gist)], verdict "fact" / "maybe" / "no"."""
+    parser = nlp()
+    if parser is None:
+        return []
+    doc = parser(sentence)
+    sents = list(doc.sents)
+    if len(sents) != 1:
+        return []
+    root = sents[0].root
+    conj = [c for c in root.children if c.dep_ == "conj" and c.pos_ in ("VERB", "AUX")
+            and any(k.dep_ in SUBJ and k.lower_ not in DEICTIC for k in c.children)]
+    if len(conj) != 1 or not any(k.dep_ in SUBJ and k.lower_ not in DEICTIC for k in root.children):
+        return []
+    c = conj[0]
+    inner = {t.i for t in c.subtree} | {t.i for t in root.children if t.dep_ == "cc" and t.i < c.i}
+    main = [t for t in root.subtree if t.i not in inner]
+    while main and (main[-1].dep_ == "cc" or main[-1].is_punct):  # "and" may hang on the object ("SQS and")
+        main.pop()
+    second = list(c.subtree)
+
+    def part(head, tokens):
+        text = "".join(t.text_with_ws for t in tokens).strip(" ,;.")
+        if _clause_is_fact(head, tokens):
+            verdict = "fact"
+        elif any(k.dep_ == "acomp" and k.pos_ == "ADJ" for k in head.children):
+            verdict = "maybe"
+        else:
+            verdict = "no"
+        gist = " ".join(t.lower_ for t in tokens if t.pos_ in ("NOUN", "PROPN", "ADJ", "NUM", "X"))
+        return text[:1].upper() + text[1:], verdict, gist
+
+    return [part(root, main), part(c, second)]
 
 
 OPENERS = "([{\"'“‘"

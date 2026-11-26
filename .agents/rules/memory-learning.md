@@ -44,10 +44,65 @@ the user uses dore only through coding agents. Their findings are in git history
 - **Hub correction** (`MemoryStore.search`, `HUB_QUESTIONS`, `HUB_WEIGHT` 0.7): a note close to many generic developer questions ("Our production servers are on Ubuntu 22.04") is ranked down relative to the other candidates (`Memory.focus`); the hook's "near the best" gap uses `focus`, the 0.65 bar stays on raw similarity. Scale store: right note first 67 -> 76 of 100; end to end +1 point (most remaining misses are below 0.65 raw). Lowering the bar to 0.58 answers 70 vs 66 but gives a note to 46 vs 25 of 86 noise prompts: not done.
 - **Relevance cut-off `min_similarity = 0.5`** (bge-small, cosine). Measured: a fact asked about directly scores ~0.68–0.83; differently-phrased personal questions only ~0.51–0.55 ("Where do I live?" vs "I live in Phnom Penh"); unrelated items are mostly below 0.5 but can reach ~0.57. The prompt tells the model to use only notes that answer the question.
 
+## One fact per note (2026-11-26)
+
+- **Two clauses with their own subjects are two notes** (`grammar.split_clauses`, run before `fact_text`): "the
+  api is on port 3000 and the worker is on port 3001". A whole note mixing two facts could never be updated (the
+  update rules rightly refuse to hide the true half). Not split: one subject with two objects ("I have a dog and
+  a cat"), a second subject pointing back ("... and it runs on RDS"), questions. A half the parser reads as a
+  judgement ("is react" like "is slow") is kept only when it parallels the other half in meaning (dore's
+  embedder on the content words >= `statements.PARALLEL` 0.6: "frontend react" ~ "backend django" 0.72, "page
+  slow" ~ "api django" 0.55). Parser misreads stay ("the web uses Vite and the mobile app uses Expo").
+- **A side clause before the comma is dropped** (`grammar.strip_lead`): no subject, no object or complement, no
+  detail ("heads up, ...", "quick note, ..."); kept: "Keep your answers short, ..." (an instruction), "Locally, ..."
+  and "In production, ..." (a place).
+- Measured: DEV 55/59 -> 58/62 right scope, junk 7/81; HELDOUT 40/43 -> 43/46, junk 3/46 (every new case right,
+  "kotlin and ktor" included); stream and scale unchanged. Parses are cached per sentence (`grammar._Cached`):
+  scale hook median 10 -> 6–7 ms, p95 23 -> 13–16 ms.
+
+## Notes on trial (Voyager-style check, 2026-11-26)
+
+- A statement learned from chat starts **on trial** (`memory.on_trial`): shown only when the prompt asks something
+  (`hooks._asks`), never added to work prompts. It is **proven** when Claude's next reply clearly uses it
+  (`hooks.use_check`: most of what the note adds beyond the prompt is in the reply, words weighted by rarity in
+  Claude's replies (`reply_words` table), and holding them by luck is under 1%), or when the user says it again
+  in another session (`times_seen >= 2`). Standing rules still show once per session, on trial or not.
+- Only the **best-matching** shown note is on test (a side note beside a better one says nothing). A try counts
+  only when the check could have seen a use (enough replies counted, rare enough words). After `ARCHIVE_TRIES` = 3
+  tries with no use the note (or a shown request) is archived, kept; said again, it comes back proven.
+- Why not judge the sentence: on paraphrased real junk, the grammar gate, a zero-shot NLI model and a typo count
+  all failed (1/6, 4/6, 2/6 junk caught; 2, 6, 1 of 10 facts lost). Claude's reply alone: share >= 0.6 for 6 of 29
+  useful lines, 0 of 30 junk; lower shares separate nothing, so only a clear use proves.
+- Measured: real replay (908 prompts, every project, fresh store): note lines shown 280 -> 121, 7 notes archived
+  (5 junk; 2 true but never needed, they return if said again); every real question still got its note.
+  `eval.stream seeds 5`: correct unchanged, tokens per work prompt 3.7 -> 0.4. Check cost ~1 ms per prompt.
+
+- **Rules are on trial too** (2026-11-26, user's choice): a standing rule said once is not added at every
+  session start (the most shown line in the real replay was a complaint shaped like a rule, 17 sessions); it is
+  shown when a question matches it, and starts every session once proven (said again in another session, or
+  used). An exemption that let rule-shaped notes onto work prompts made them immortal (real replay 145 -> 163
+  lines): removed. Real replay now 280 -> 114 note lines; conversation short ~73 -> ~35 tokens per question.
+- **Most specific wins when reading** (`hooks.prompt_context`): a general note about the same thing as one of this
+  project's own notes (`replaces` either way) is left out in that project, whichever was said first.
+- **A value is found by its place** (`rules._slot_change`): "<topic> is <x>" -> "<change word> <topic> to <y>",
+  one word each, whatever its case ("The frontend is react" -> "We moved the frontend to vue"). A leading "-ly"
+  adverb before the subject is ignored when comparing notes (`rules._unplace`; the note keeps its text).
+- Left: a request written as a question ("can you add …?") counts as a question, so a note on trial can be tried
+  there (it is archived if never used).
+
 ## Project vs general (scope)
 
-- A note's `project` is the folder name of the session (`hooks._project`; home or `/` -> general `""`). Search sees
-  the current project + general.
+- A note's `project` is the session's **git repo** (`integrations.project`, 2026-11-26): the remote
+  (`host/owner/repo`, user and token dropped) or else the repo root path; subfolders and worktrees share it, two
+  repos with the same folder name stay apart; a folder without git is its full path, or the session's start
+  folder (`CLAUDE_PROJECT_DIR`, sent by `hookclient`) when it is under it (a folder above that dore knows is not
+  joined: it may hold many projects; a moved folder without git loses its notes); the home folder (or `/`) is
+  its own place `~`, not general (a repo in the home folder doesn't own the folders under it). Plain file reads,
+  no `git` process: 0.2–0.6 ms the first time per folder, 0.02 ms cached; warm hook unchanged (~0.06 s). The first
+  time a place is seen in a process (`hooks.resolve_project`), notes and raw memory stored under its older keys
+  (repo and session folder names, the path key) move to it (`MemoryStore.rename_project`; general notes never
+  move; old home-folder notes stay general, they can't be told apart). A real subfolder of this repo had been
+  its own project. Search sees the current project + general.
 - `learn/statements.py: scope_for`: organisation facts (`ORG`: "our production server", "we always…", "all our
   services", "every project") and facts about the user go to general; everything else stays in the project.
   "About the user" is decided by the sentence's subject (`grammar.about_user`): "I…" / "my…" / "X is my Y" or a
@@ -55,7 +110,21 @@ the user uses dore only through coding agents. Their findings are in git history
   on a thing) is the project's. Without spaCy: any I/my/me makes it general. A sentence with no verb ("my dog name
   Adam", "my hometown kampot") is the user's when its noun phrase is "my …" (the parser picked a different head each
   time: "My sister name Dara" went general, "My dog name Adam" stayed in one project; DEV 46 -> 48/52, 2026-11-26).
-- A project note replaces an older general one, never the reverse.
+- **An update lives where the fact lives** (scope S2, 2026-11-26): a project note that replaces a general note
+  becomes general, so every project sees the new value. Said with a place ("here", "locally", "in this repo";
+  `rules.local_value`), it is that project's own value: the general note stays for the others and is hidden only
+  there (`shadows` table, read by `MemoryStore.search`). Place words are ignored when comparing two notes
+  (`rules._unplace`), like time words. **No cross-project fallback**: another project's note is never shown (it
+  leaked values; with updates keeping their scope it rescued nothing). Stream weeks 3–4 correct 26.2/26.0 ->
+  27.6/27.6, repeat mistakes 6.4 -> 5.0; scale unchanged (81% at week 24), tokens per work prompt 6.4 -> 1.4.
+  Left: "Here **the** server…" vs "**Our** server…" is not seen as an update (determiners compared as words).
+- **Where a general fact was said decides who its change reaches** (scope S3, 2026-11-26): every note records
+  the project it was said in (`said_in`). Changed in that project, a general fact changes for everyone; changed
+  in another project, the new value is that project's own (the general note is hidden only there; when unsure,
+  keep both). A project's own value keeps hiding the general fact after the general value changes. Not done,
+  measured as harmful: promoting a fact because 2 projects state the same value (projects share values by
+  chance: three use Cognito in `eval.scale`); removing `ORG` ("our production server…") before evidence can
+  replace it. `ORG` stays a first guess that later evidence overrides. Stream and scale unchanged.
 - **Promotion** (`hooks._promoted`): a habit with no concrete value, said with the same content words in a second project, is saved as general ("Don't reformat existing code"). Close meaning is not enough: "We merge into develop" / "… into trunk" (0.9) differ in a value that is an ordinary word (it leaked 1.2/week in the stream test before this check).
 - Not yet (roadmap step 4): promoting a project fact to general when it shows up in 2+ projects; telling
   apart two folders with the same name.

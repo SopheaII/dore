@@ -1,5 +1,4 @@
-"""Text rules on memory notes (no model): duplicates, keywords, and when a new note is the
-same fact as an old one with one detail changed (`same_frame`) or replaces it (`replaces`)."""
+"""Text rules on notes: duplicates, same fact with one detail changed, which note replaces which."""
 
 from __future__ import annotations
 
@@ -111,6 +110,7 @@ def _value_like(part: tuple, original: str) -> bool:
 def replaces(old: str, new: str) -> bool:
     """True when `new` is an update of `old`: one detail changed (`same_frame`) in a sentence
     that can only hold one value at a time. Unclear cases return False: both are kept."""
+    old, new = _unplace(old), _unplace(new)
     pair = _frame_pair(old, new)
     rewritten = pair is None
     if rewritten:
@@ -208,6 +208,21 @@ LIGHT_VERBS = frozenset("use uses used using run runs running go goes through vi
 # Self-references carry no topic: "This project needs Node 24" is about Node.
 GENERIC = frozenset("project app application repo repository codebase here locally this".split())
 _VERBISH = SINGLE_VALUE | LIGHT_VERBS | frozenset("is are was were".split())
+_PLACE_NOUNS = "|".join(sorted(GENERIC - {"here", "locally", "this"}))
+_LOCAL = re.compile(rf"\b(?:here|locally)\b|\b(?:this|in our|for our) (?:{_PLACE_NOUNS})\b", re.I)
+
+
+def local_value(text: str) -> bool:
+    """The sentence says its value holds for this place only ("here", "locally", "in this repo")."""
+    return bool(_LOCAL.search(text))
+
+
+def _unplace(text: str) -> str:
+    """The sentence without its place ("here", ...): the place is the note's scope, not the fact."""
+    out = re.sub(r"\b(?:in|for|on)\s+(?=(?:this|our)\b)", "", text, flags=re.I)
+    out = _LOCAL.sub("", out)
+    out = re.sub(r"^\s*[A-Za-z]+ly,?\s+(?=(?:the|our|my|we|i|this|it)\b)", "", out, flags=re.I)
+    return re.sub(r"\s+", " ", out).strip(" ,") or text
 
 
 def _topic(text: str) -> set[str]:
@@ -258,14 +273,32 @@ def _names_old_value(old: str, new: str, topic_old: set) -> bool:
     return False
 
 
+def _slot_change(old: str, new: str) -> bool:
+    """"The frontend is react" -> "We moved the frontend to vue": the value is found by its place."""
+    o, n = _WORD.findall(old.lower()), _WORD.findall(new.lower())
+    vi = next((i for i, w in enumerate(o) if w in SINGLE_VALUE), None)
+    ci = next((i for i, w in enumerate(n) if w in CHANGE_WORDS), None)
+    if vi is None or ci is None or len(o) != vi + 2 or "to" not in n[ci + 1:]:
+        return False
+    ti = ci + 1 + n[ci + 1:].index("to")
+    if len(n) != ti + 2:
+        return False
+    topic_old = [w for w in o[:vi] if w not in STOPWORDS]
+    topic_new = [w for w in n[ci + 1:ti] if w not in STOPWORDS]
+    return bool(topic_old) and topic_old == topic_new and o[-1] != n[-1]
+
+
 def changes(old: str, new: str) -> bool:
     """True when `new` says, in other words, that the value in `old` changed: it has a change word
     ("We switched the cache to Redis" after "We cache with Memcached"), covers every topic word of
     `old`, and both name a concrete value that differs. Multi-value verbs keep both. Only called for
     notes already close in meaning (`MemoryStore._supersede`)."""
+    old, new = _unplace(old), _unplace(new)
     words = set(_WORD.findall(new.lower()))
     if not words & CHANGE_WORDS or words & MULTI_VALUE or set(_WORD.findall(old.lower())) & MULTI_VALUE:
         return False
+    if _slot_change(old, new):
+        return True
     topic_old, topic_new = _topic(old), _topic(new)
     if _names_old_value(old, new, topic_old):
         return True

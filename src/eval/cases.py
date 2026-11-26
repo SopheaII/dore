@@ -1,17 +1,6 @@
-"""Labelled messages for testing what dore learns, in many writing styles (not one person's words).
+"""Labelled messages that test what dore learns. DEV may guide rules; HELDOUT and real prompts are measure-only.
 
-Two independent sets, written separately:
-- DEV: web shop / backend work. Rules may be designed while looking at these.
-- HELDOUT: mobile, data, devops, embedded, ML and personal life, in other wording. Only measured,
-  never used to design or tune a rule. A rule that passes DEV but not HELDOUT is a word patch.
-A third set, real prompts from the user's own Claude Code sessions, stays in `data/` (private,
-git-ignored) and is also only measured (`python -m dore.eval.learning --real`).
-
-Each case: (message, expect, scope, style)
-- expect: a value that must appear in a stored note ("" = nothing may be stored; None = ambiguous, not scored)
-- scope: "project" or "general" (about the user or the whole organisation), for facts only
-- style: plain, casual, typo, non-native, terse, polite, mixed (a fact inside a request), correction,
-  request, question, reaction, opinion, progress, paste, log, code, ui, chatter, hypothetical, other-language
+Each case: (message, expect, scope, style). expect "" = must store nothing; None = not scored.
 """
 
 from __future__ import annotations
@@ -172,6 +161,20 @@ DEV = [
     ("I care about", "", None, "non-native"),
     ("we should look into", "", None, "progress"),
     ("this is what i was thinking about", "", None, "non-native"),
+    ("500 ms per page load is this are ok compare with other shop", "", None, "non-native"),
+    ("for deploy i use docker to run this right", "", None, "non-native"),
+    ("i just push from vscode", "", None, "non-native"),
+    ("Checkout    cart · payment · shipping", "", None, "paste"),
+    ("like admin can upload csv ...", "", None, "non-native"),
+    ("thsi are too many button and some are not need", "", None, "non-native"),
+    ("please test again since last time i change this but it still show old price", "", None, "non-native"),
+    ("the frontend is react and the backend is django", "react", "project", "non-native"),
+    ("the api is on port 3000 and the worker is on port 3001", "3001", "project", "plain"),
+    ("heads up, the cache is redis 7", "redis", "project", "casual"),
+    ("the page is slow and the button is blue", "", None, "opinion"),
+    ("my cat name Mochi", "Mochi", "general", "non-native"),
+    ("i use rider for dotnet code", "rider", "general", "non-native"),
+    ("we not use docker in this repo", "docker", "project", "non-native"),
     # ambiguous: not scored
     ("Don't run the slow e2e suite, just use the unit tests now.", None, None, "ambiguous"),
 ]
@@ -268,6 +271,18 @@ HELDOUT = [
     ("Step 1: open Settings.\nStep 2: tap Developer options.\nStep 3: enable USB debugging.", "", None, "paste"),
     ("[INFO] 2026-11-20 02:00:01 job=nightly rows=120394 status=ok", "", None, "log"),
     ("warning: unused variable `x`\n --> src/main.rs:4:9", "", None, "log"),
+    ("3 second for training step is this are normal or slow", "", None, "non-native"),
+    ("for flash firmware i use the usb cable right", "", None, "non-native"),
+    ("i just reboot the board", "", None, "non-native"),
+    ("Pipeline    ingest · clean · export", "", None, "paste"),
+    ("so many log and some are not useful", "", None, "non-native"),
+    ("please check again since i retrain it but accuracy still same", "", None, "non-native"),
+    ("the app is kotlin and the server is ktor", "kotlin", "project", "non-native"),
+    ("the trainer runs on gpu 0 and the evaluator runs on gpu 1", "gpu 1", "project", "plain"),
+    ("quick note, firmware is built with platformio", "platformio", "project", "casual"),
+    ("the screen is laggy and the battery is weak", "", None, "opinion"),
+    ("my brother name Visal", "Visal", "general", "non-native"),
+    ("the model train on 2 gpu only", "2 gpu", "project", "non-native"),
     # other languages
     ("ខ្ញុំប្រើ Python សម្រាប់គម្រោងនេះ", "Python", "project", "other-language"),
     ("Usamos MySQL en producción.", "MySQL", "project", "other-language"),

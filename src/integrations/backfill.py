@@ -1,17 +1,6 @@
-"""Give past sessions the same second chance: keep what the user typed in old Claude Code sessions as raw
-memory, then let today's rules judge it (`hooks.consolidate`).
+"""Re-judge past Claude Code sessions: keep the user's typed sentences as raw memory, then consolidate.
 
-    python -m dore.integrations.backfill            # dry run: counts only, writes nothing
-    python -m dore.integrations.backfill --apply    # keep the sentences, then consolidate
-
-Reads the user's own typed messages from `~/.claude/projects/*/*.jsonl` (not tool output, not pastes; a
-sentence Claude wrote and the user pasted back is skipped). Every sentence becomes an episode dated when it
-was said; consolidation learns the ones today's rules call facts, dated then too (an older date never
-replaces a newer note). A fact whose words are already a note in any state (kept, archived, marked wrong,
-replaced) is not learned again, so nothing the user archived comes back. Sentences already in raw memory
-for that session (the prompt hook keeps new ones itself) are skipped, so running it twice changes nothing,
-and a session the hook joined halfway still gets its earlier sentences. Nothing is deleted. Claude Code
-removes session logs after 30 days by default, so older sessions are not there to read.
+Dry run by default (`python -m dore.integrations.backfill`); `--apply` writes. Nothing is deleted.
 """
 
 from __future__ import annotations
@@ -22,7 +11,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from dore.integrations.hooks import _known, _project, consolidate, not_echoed
+from dore.integrations.hooks import _known, _project, consolidate, not_echoed, similar_fn
 from dore.learn.statements import episode_sentences, message_facts
 from dore.memory import episodes
 
@@ -76,7 +65,7 @@ def backfill(store, apply: bool = False, root: Path = LOGS) -> dict:
         kept = {c for (c,) in store.db.execute("SELECT content FROM episodes WHERE session=?", (sid,))}
         new_here = False
         for when, msg, echo in typed:
-            facts = not_echoed(message_facts(msg), echo)
+            facts = not_echoed(message_facts(msg, similar_fn(store)), echo)
             # Facts go in as raw memory too: consolidation learns them with today's rules (or skips known ones).
             sents = [x for x in facts + not_echoed(episode_sentences(msg, facts), echo) if x.strip() not in kept]
             facts = [f for f in facts if f.strip() not in kept]

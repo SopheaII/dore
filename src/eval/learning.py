@@ -1,17 +1,4 @@
-"""Does dore learn the right things from any writing style? Scores the learning rules on labelled sets.
-
-    python -m dore.eval.learning           # DEV + HELDOUT + updates + retrieval (~10 s, embedder only)
-    python -m dore.eval.learning --real    # also the private labelled sample of real prompts
-                                           # (data/eval/real_labels.json, git-ignored)
-    python -m dore.eval.learning --styles  # per-style breakdown
-
-Message scores (`src/eval/cases.py`):
-- facts learned: a stored note contains the expected value;
-- right scope: ...and it went to the expected scope (project, or general for the user/organisation);
-- junk: a message with nothing to learn stored something.
-DEV may be used to design rules; HELDOUT and real prompts are only measured. A gap between them
-means a rule learned the wording of DEV, not the meaning.
-"""
+"""Scores what dore learns on the labelled sets: `python -m dore.eval.learning` (`--real`, `--styles`)."""
 
 from __future__ import annotations
 
@@ -27,10 +14,13 @@ from dore.eval.cases import DEV, HELDOUT, RETRIEVAL, UPDATES
 REAL_LABELS = Path("data/eval/real_labels.json")
 
 
+SIMILAR = None  # the hook's meaning check for parallel clauses (`hooks.similar_fn`), set by main()
+
+
 def learn(text: str, project: str = "proj") -> list[tuple[str, str]]:
     """(note, scope) pairs the Claude Code hook would store for one message."""
     from dore.learn.statements import message_facts, scope_for
-    return [(f, scope_for(f, project) or "general") for f in message_facts(text)]
+    return [(f, scope_for(f, project) or "general") for f in message_facts(text, SIMILAR)]
 
 
 def score_messages(cases) -> dict:
@@ -112,6 +102,11 @@ def main(argv: list[str] | None = None):
     from dore.memory.embed import FastEmbedder
     cfg = Config()
     emb = FastEmbedder(cfg.embed_model, cache_dir=str(cfg.cache_dir / "fastembed"))
+    global SIMILAR
+
+    def SIMILAR(a: str, b: str) -> float:  # noqa: N802 - same check as the hook
+        v = emb.embed([a, b])
+        return float(v[0] @ v[1])
     sets = [("DEV", DEV), ("HELDOUT", HELDOUT)]
     if "--real" in argv and REAL_LABELS.exists():
         real = json.loads(REAL_LABELS.read_text())

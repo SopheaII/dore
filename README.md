@@ -2,15 +2,15 @@
 
 <p align="center">
   <strong>Memory for Claude Code. Say it once, it remembers in every new session.</strong><br/>
-  Runs on your laptop · free to learn · nothing leaves your machine
+  Runs on your laptop · free to learn · your memory never leaves your machine
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Claude_Code-plugin_0.6.0-d97757?style=flat-square" alt="Claude Code plugin 0.6.0" />
+  <img src="https://img.shields.io/badge/Claude_Code-plugin_0.6.1-d97757?style=flat-square" alt="Claude Code plugin 0.6.1" />
   <a href="https://github.com/SopheaII/dore-memory/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/SopheaII/dore-memory/ci.yml?branch=master&style=flat-square&label=CI" alt="CI" /></a>
   <a href="https://www.npmjs.com/package/dore-memory"><img src="https://img.shields.io/npm/v/dore-memory?style=flat-square&logo=npm" alt="npm" /></a>
   <img src="https://img.shields.io/badge/python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+" />
-  <img src="https://img.shields.io/badge/data-stays_local-2ea44f?style=flat-square" alt="Data stays local" />
+  <img src="https://img.shields.io/badge/memory-stays_local-2ea44f?style=flat-square" alt="Memory stays local" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license" />
 </p>
 
@@ -109,12 +109,18 @@ Then start a new Claude Code session and talk as usual. That's it.
 |---|---|
 | `npx dore-memory install` | Sets up dore and turns on its Claude Code plugin |
 | `npx dore-memory status` | Shows where dore is and whether the plugin is on |
-| `npx dore-memory update` | Gets the latest dore |
+| `npx dore-memory@latest update` | Gets the latest dore and its plugin |
 | `npx dore-memory uninstall` | Removes dore and the plugin (your memory is kept) |
 
 **What `install` does:** sets up dore in `~/.dore-memory` and turns on its Claude Code plugin.
 Your memory is saved in `~/.dore-memory/data`. Change the folder with `DORE_HOME`.
 The first install downloads about 200 MB (Python packages and a small search model).
+
+**Updates are automatic.** Once a day, while you are not typing, dore asks npm whether a newer version is
+out and, if so, updates itself in the background at low priority (no message; log in `~/.dore-memory/data/update.log`).
+Turn this off with `DORE_NO_AUTO_UPDATE=1` (`NO_UPDATE_NOTIFIER=1`, `DO_NOT_TRACK=1` and Claude Code's
+`DISABLE_AUTOUPDATER=1` also turn it off), then update by hand with `npx dore-memory@latest update`.
+Installs from source never update by themselves.
 
 ### From source
 
@@ -139,7 +145,17 @@ It also works with opencode and other MCP agents.
    message, so Claude can answer. If nothing matches, nothing is added (0 tokens).
 4. **If a fact changes** ("the port is now 9443"), the newer note replaces the old one.
 
-Learning runs locally with small models, so it costs no Claude tokens and nothing leaves your machine.
+Learning runs locally with small models, so it costs no Claude tokens and your memory never leaves your machine.
+
+## Privacy
+
+- **Stays on your machine:** every note, everything you type, your projects and the search model's work.
+  dore has no account, no server and no telemetry.
+- **The only thing dore sends:** once a day, one request for the public page
+  `https://registry.npmjs.org/dore-memory/latest` to see the newest version number. It carries nothing about
+  you or your memory; npm sees an ordinary request from your IP address. When there is a newer version, the
+  update downloads it from npm and GitHub. Off with `DORE_NO_AUTO_UPDATE=1`.
+- Installing and updating download packages from npm, GitHub and PyPI, like any installer.
 
 ## Limits
 

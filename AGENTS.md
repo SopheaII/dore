@@ -11,6 +11,15 @@ dore is a local memory for Claude Code and other coding agents that keeps learni
 - **Draft-check-fix loops only with a real checker** (run the code, check the maths); otherwise answer once.
 - **CPU-only laptop baseline** (4+ cores with AVX2, 8 GB RAM, no GPU, Linux): no Apple-only (MLX) or NVIDIA-only (CUDA) tools in the core path; background work at low priority, paused while the user chats, 4 threads. Heavy work in native code (FAISS, ONNX via fastembed), never Python loops over large data.
 - **One roadmap step at a time**; finish and measure it (`bench stream`) before the next.
+- **Fix the design, not the example.** When something fails, find the missing concept or the decision made in the
+  wrong place (the data model, when it is decided, what evidence it uses) and change that, so the whole class of
+  cases works. No new word lists, thresholds tuned to one case, or special cases for one sentence; existing lists
+  should shrink. Before building a part, look for a maintained library that already does it (PyPI,
+  `REFERENCES.md`), measure it, and prefer it over writing our own. No new ready-made AI models (the user's choice,
+  2026-11-26): use evidence (what the user and Claude do next) and the parser and embedder dore already has.
+- **Speed is part of the design.** The prompt hook stays fast (median ~10–25 ms; `bench stream`, `bench scale`).
+  A model on the prompt path must be small (ONNX) and run on a few items only; heavier models run in idle
+  consolidation. Report ms and tokens with every change.
 
 ## Working here
 
@@ -18,6 +27,7 @@ dore is a local memory for Claude Code and other coding agents that keeps learni
 - Learning rules must work for anyone's wording: decide by shape, grammar or meaning, never by lists of topic or action words; design on DEV cases, judge on HELDOUT and fresh real prompts (`learning-change` skill).
 - Explain results in plain, simple English with tables; mark estimates as estimates. Commit or push only when the user asks.
 - Update the rule file whose measured behaviour changed, and the roadmap below when a step finishes.
+- **Few comments.** Write no comment that repeats the code or the function name. Keep only a short one-line comment for a non-obvious *why* (a hidden constraint, a measured threshold, a workaround). Module docstrings: one or two lines saying what the file is for. No dates, measurement logs, example sentences or history in code comments; put those in the rule files or the roadmap.
 
 | Changing | Read | Skill |
 |---|---|---|
@@ -42,8 +52,12 @@ Success = `bench stream`: correct up, stale/leak/junk/repeat mistakes down, toke
 
 1. Done (2026-11-26; real replay 70 -> 46 notes, every real fact kept; echo check; hub correction; stale weeks 3–4 2.0/2.8). Left for meaning, not rules: synonym topics ("db" / "database", "deploy" / "hosted"). Details: [memory-learning](.agents/rules/memory-learning.md).
 2. Learn from Claude's side at SessionEnd: measured 2026-11-25 on 117 real sessions, "a failed shell command then a similar one that worked" gave 2 lessons, both junk (exploratory reads in long chained commands; 145 of 186 real failures are long multi-step commands): not adopted. Commit messages only repeat `git log`. Next signal to measure: the user accepting a proposal ("yes, keep that").
-3. Consolidation and forgetting. Done: `dore.learn.recheck` archives notes today's rules would not store (2026-11-25); raw memory of every typed sentence that is not a note, consolidated while idle and judged again when the rules change, so a fixed rule also learns past sentences (`memory.episodes`, `hooks.consolidate`, `integrations.backfill`; 2026-11-26; recall of raw sentences on a cue measured ~3 useful of 11: off). Next: a raw sentence that tells something, said again in another session, becomes a note. Left: score (use + recency + trust), decay, archive (never delete; protected exempt), merge similar notes.
-4. Project -> general promotion: a fact seen or helpful in 2+ projects becomes general (project copies kept, linked); one project's names/paths/IDs never go general; identify a project by git root, not folder name.
+3. Consolidation and forgetting. Done: `dore.learn.recheck` archives notes today's rules would not store (2026-11-25); raw memory of every typed sentence that is not a note, consolidated while idle and judged again when the rules change, so a fixed rule also learns past sentences (`memory.episodes`, `hooks.consolidate`, `integrations.backfill`; 2026-11-26; recall of raw sentences on a cue measured ~3 useful of 11: off). Done 2026-11-26: notes on trial, Voyager-style (shown only on questions until Claude's reply clearly uses them or the user says them again; tried 3 times unused -> archived; real replay 280 -> 121 note lines; tokens per work prompt 3.7 -> 0.4). Next: a raw sentence that tells something, said again in another session, becomes a note. Left: score (use + recency + trust), decay, archive (never delete; protected exempt), merge similar notes.
+4. Scope redesign (plan: [scope-redesign](.agents/plans/scope-redesign.md), 2026-11-26): a project is its git repo
+   (worktrees and subfolders share it), not its folder name; scope belongs to what a fact is about, not its wording;
+   updates stay in their level; levels user / workspace / repo / home, most specific wins; promotion by evidence
+   (same value in 2+ repos; project copies kept, linked; one repo's names/paths/IDs never go general); no
+   cross-project fallback; the user can move a note's scope. Steps S1–S5 in the plan, one at a time; S1 (project = git repo, start folder without git), S2 (updates keep their scope, no cross-project notes), S3 safe part (where a fact was said decides who its change reaches) done 2026-11-26.
 5. Retrieval: topic keys done (2026-11-26, retrieval 5/8 -> 7/8; `bge-base-en-v1.5` measured: +1 to +3 points for 2x hook time, not adopted). Left: synonym questions ("What is my job?" vs "I work as a nurse"), profile card (once per session), small reranker.
 6. Other languages: multilingual parser + embedder (Khmer is neither learned nor found today).
 

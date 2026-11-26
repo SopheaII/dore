@@ -1,21 +1,4 @@
-"""Fast memory: SQLite records + FAISS vector index.
-
-Rules enforced here (see CLAUDE.md):
-- nothing is ever hard-deleted; low-value items are archived;
-- items marked `wrong`, archived items and the model's unapproved answers are
-  kept in SQLite but left out of the vector index, so search never returns them;
-- vectors are kept in SQLite so the FAISS index can always be rebuilt.
-
-Speed notes:
-- writes are batched (`add_many`): one embedding call, one index search, one commit;
-- the index file is written at most every `index_save_interval` seconds (and on
-  close). If the program dies in between, the index is checked against SQLite on
-  the next start and rebuilt when they differ, so nothing is lost;
-- the store is safe to share between threads (one lock around every operation);
-- several processes may open the same memory.db (e.g. one per Claude Code session):
-  SQLite is the shared truth, and each process updates its own vector index from it
-  before searching when another process has written (`PRAGMA data_version`).
-"""
+"""Fast memory: SQLite records plus a FAISS vector index. Nothing is hard-deleted; archived and wrong notes stay out of search."""
 
 from __future__ import annotations
 
@@ -32,6 +15,8 @@ import numpy as np
 from .embed import Embedder
 HUB_WEIGHT = 0.7
 CHANGE_SIMILARITY = 0.6  # a reworded update ("We switched the cache to Redis") must be this close to the old note
+ARCHIVE_TRIES = 3
+
 # Generic questions a developer asks about any project (not the eval's questions): a note close to
 # many of them matches every prompt a little and is pushed down (`search`, hub correction).
 HUB_QUESTIONS = (
@@ -43,7 +28,7 @@ HUB_QUESTIONS = (
     "What linter do we use?", "How are secrets managed?", "What does the CI run?", "How do I reset my password?",
     "Which payment provider do we use?", "What is the timeout?", "How many users do we have?")
 
-from .rules import _dup_key, _is_identifier, _jaccard, _query_terms, _signature, changes, embed_text, replaces
+from .rules import _dup_key, _is_identifier, _jaccard, _query_terms, _signature, changes, embed_text, local_value, replaces
 from .schema import FTS_SCHEMA, SCHEMA
 from .types import _COLS, SEARCHABLE_SQL, TRUST_LEVELS, Memory, _row, searchable
 
@@ -91,9 +76,13 @@ class MemoryStore:
         if "project" not in cols:
             self.db.execute("ALTER TABLE memories ADD COLUMN project TEXT NOT NULL DEFAULT ''")
         for col, typ in (("last_seen", "REAL"), ("replaced_by", "INTEGER"), ("valid_to", "REAL"),
-                         ("key_vector", "BLOB")):
+                         ("key_vector", "BLOB"), ("tries", "INTEGER NOT NULL DEFAULT 0"),
+                         ("uses", "INTEGER NOT NULL DEFAULT 0"), ("said_in", "TEXT")):
             if col not in cols:
                 self.db.execute(f"ALTER TABLE memories ADD COLUMN {col} {typ}")
+        self.db.execute("CREATE TABLE IF NOT EXISTS reply_words (word TEXT PRIMARY KEY, n INTEGER NOT NULL)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS shadows (note_id INTEGER NOT NULL, project TEXT NOT NULL, "
+                        "by_id INTEGER NOT NULL, PRIMARY KEY (note_id, project))")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_mem_project ON memories(project)")
         had_fts = self.db.execute(
             "SELECT 1 FROM sqlite_master WHERE name='memories_fts'").fetchone() is not None
@@ -352,6 +341,15 @@ class MemoryStore:
                     or not (replaces(m.content, new.content)
                             or (sim >= CHANGE_SIMILARITY and changes(m.content, new.content)))):
                 continue
+            if m.project == "" and new.project:
+                origin = self.db.execute("SELECT said_in FROM memories WHERE id=?", (i,)).fetchone()[0]
+                if local_value(new.content) or (origin is not None and origin != new.project):
+                    self.db.execute("INSERT OR REPLACE INTO shadows (note_id, project, by_id) VALUES (?,?,?)",
+                                    (i, new.project, new_id))
+                    continue
+                self.db.execute("UPDATE memories SET project='' WHERE id=?", (new_id,))
+                new = self.get(new_id)
+            self.db.execute("UPDATE OR IGNORE shadows SET note_id=? WHERE note_id=?", (new_id, i))
             self.db.execute("UPDATE memories SET replaced_by=?, valid_to=? WHERE id=?", (new_id, time.time(), i))
             self._sync_index(m, self.get(i))
             done.append(i)
@@ -402,6 +400,14 @@ class MemoryStore:
                 self._merge(dup, text, source, trust, protected, now)
                 ids.append(dup)
                 continue
+            back = self._tried_out(sigs[i], project) if indexed and source == "user" else None
+            if back is not None:  # said again after a trial archived it: the repeat proves it
+                before = self.get(back)
+                self.db.execute("UPDATE memories SET archived=0 WHERE id=?", (back,))
+                self._merge(back, text, source, trust, protected, now)
+                self._sync_index(before, self.get(back))
+                ids.append(back)
+                continue
             cur = self.db.execute(
                 "INSERT INTO memories (content, kind, source, trust, protected, created, vector, project, key_vector) "
                 "VALUES (?,?,?,?,?,?,?,?,?)",
@@ -414,6 +420,12 @@ class MemoryStore:
                 new_ids.append(cur.lastrowid)
         self._index_add(vecs[new_rows], new_ids)
         return ids
+
+    def _tried_out(self, sig, project: str) -> int | None:
+        """A note with the same words that a trial archived (`mark_tried`), in this project."""
+        rows = self.db.execute("SELECT id, content FROM memories WHERE archived=1 AND project=? AND uses=0 "
+                               "AND tries>=?", (project, ARCHIVE_TRIES)).fetchall()
+        return next((i for i, c in rows if _dup_key(c) == sig), None)
 
     def _merge(self, dup_id: int, text: str, source: str, trust: str, protected: bool, now: float):
         """Same fact stated again. Keep the stronger trust level and the first date (`created`);
@@ -546,8 +558,10 @@ class MemoryStore:
             self._refresh()
             if self.index.ntotal == 0:
                 return []
+            hidden = {r[0] for r in self.db.execute("SELECT note_id FROM shadows WHERE project=?", (project,))} \
+                if project else set()
             ok = lambda m: (searchable(m.kind, m.trust, m.archived)  # noqa: E731
-                            and (project is None or m.project in (project, "")))
+                            and (project is None or m.project in (project, "")) and m.id not in hidden)
             cands: dict[int, Memory] = {}
             # Meaning candidates. With a project filter, widen the search until enough pass it.
             n = min(self.index.ntotal, max(k * 4, 20))
@@ -665,6 +679,56 @@ class MemoryStore:
             except Exception:  # an embedder that can't embed them (tests): no correction
                 self._hub_vecs = np.zeros((1, self.embedder.dim), dtype=np.float32)
         return self._hub_vecs
+
+    def count_reply(self, words: set[str]):
+        """Count one of Claude's replies in the word statistics (`reply_words`)."""
+        with self._lock:
+            self.db.executemany("INSERT INTO reply_words (word, n) VALUES (?, 1) "
+                                "ON CONFLICT(word) DO UPDATE SET n = n + 1", [(w,) for w in (*words, "")])
+            self.db.commit()
+
+    def reply_counts(self, words: set[str]) -> tuple[int, dict[str, int]]:
+        """(replies counted, {word: replies containing it}) for these words."""
+        ws = list(words) + [""]
+        with self._lock:
+            rows = dict(self.db.execute(
+                f"SELECT word, n FROM reply_words WHERE word IN ({','.join('?' * len(ws))})", ws).fetchall())
+        return rows.pop("", 0), rows
+
+    def mark_tried(self, ids: list[int], used: set[int]) -> list[int]:
+        """Count a try for shown notes; unused after `ARCHIVE_TRIES` -> archived. Returns archived ids."""
+        from .types import on_trial
+        gone = []
+        with self._lock:
+            for i in ids:
+                self.db.execute("UPDATE memories SET tries = tries + 1, uses = uses + ? WHERE id=?", (int(i in used), i))
+            self.db.commit()
+            for i, m in self.get_many(ids).items():
+                if (on_trial(m) or m.kind == "requirement") and m.uses == 0 and m.tries >= ARCHIVE_TRIES \
+                        and self.archive(i):
+                    gone.append(i)
+        return gone
+
+    def rename_project(self, old: list[str], new: str) -> int:
+        """Move notes under older project keys to `new` (never general ones). Returns the count moved."""
+        old = [o for o in old if o and o != new]
+        if not old:
+            return 0
+        q = ",".join("?" * len(old))
+        with self._lock:
+            n = self.db.execute(f"UPDATE memories SET project=? WHERE project IN ({q})", (new, *old)).rowcount
+            self.db.execute(f"UPDATE episodes SET project=? WHERE project IN ({q})", (new, *old))
+            self.db.execute(f"UPDATE episodes SET scope=? WHERE scope IN ({q})", (new, *old))
+            self.db.commit()
+        return n
+
+    def mark_said_in(self, ids: list[int], project: str):
+        """Record the project the user said these notes in (a general note keeps where it came from)."""
+        if ids:
+            with self._lock:
+                self.db.execute(f"UPDATE memories SET said_in=? WHERE said_in IS NULL AND id IN "
+                                f"({','.join('?' * len(ids))})", (project, *ids))
+                self.db.commit()
 
     def projects(self) -> dict[str, int]:
         """Project name -> number of searchable memories ("" = general)."""

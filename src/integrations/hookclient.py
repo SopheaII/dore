@@ -1,12 +1,4 @@
-"""`dore-hook`: fast front end for the Claude Code hooks.
-
-Starting Python and loading the embedding model took ~0.9 s on every prompt (0.68 s of it the
-embedder; measured 2026-11-25). This client imports only the standard library and asks a warm
-background helper (`dore.hookd`) over a Unix socket in data/. Windows has no Unix sockets in Python:
-there the helper listens on 127.0.0.1 and data/hook.sock is a small owner-only file with its port and a
-random token that every request must carry. If the helper isn't running, the client starts one for next
-time and handles this event itself, so a hook never fails because of it.
-"""
+"""`dore-hook`: fast front end for the Claude Code hooks; asks the warm helper (`dore.hookd`) over a local socket."""
 
 from __future__ import annotations
 
@@ -76,6 +68,8 @@ def main(argv: list[str] | None = None):
         data = json.loads(sys.stdin.read() or "{}")
     except ValueError:
         data = {}
+    if os.environ.get("CLAUDE_PROJECT_DIR"):  # the folder the session started in (Claude Code sets it for hooks)
+        data.setdefault("project_dir", os.environ["CLAUDE_PROJECT_DIR"])
     cfg = Config()
     if event == "quit":  # stop the helper (before uninstall); nothing to do if none is running
         ask_helper(str(cfg.data_dir / SOCKET_NAME), "quit", {}, timeout=5.0)
