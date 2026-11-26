@@ -1,0 +1,14 @@
+{
+  "name": "dore-memory",
+  "version": "0.1.0",
+  "description": "Local long-term memory for Claude Code. Say it once, it remembers in every new session. Installs the dore Python package and its Claude Code plugin.",
+  "keywords": ["claude-code", "claude", "memory", "agent", "mcp", "plugin"],
+  "homepage": "https://github.com/SopheaII/dore-memory#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/SopheaII/dore-memory.git", "directory": "npm" },
+  "bugs": { "url": "https://github.com/SopheaII/dore-memory/issues" },
+  "license": "MIT",
+  "bin": { "dore-memory": "bin/dore-memory.js" },
+  "files": ["bin/", "README.md", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "os": ["darwin", "linux"]
+}

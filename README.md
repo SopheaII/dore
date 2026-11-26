@@ -76,7 +76,7 @@ cd ~/Documents/dore                     # or set DORE_HOME to where it is
 uv venv .venv --python 3.12
 uv pip install --python .venv/bin/python -e ".[dev]"
 claude plugin marketplace add ~/Documents/dore
-claude plugin install dore@dore
+claude plugin install dore-memory@dore-memory
 ```
 
 Then use Claude Code as usual. Works on macOS and Linux, no GPU. It also works with opencode and other MCP agents.

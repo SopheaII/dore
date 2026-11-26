@@ -1,9 +1,9 @@
 {
-  "name": "dore",
+  "name": "dore-memory",
   "owner": { "name": "dore" },
   "plugins": [
     {
-      "name": "dore",
+      "name": "dore-memory",
       "source": "./plugin",
       "description": "Local long-term memory for Claude Code (dore)."
     }

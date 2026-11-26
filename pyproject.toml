@@ -1,5 +1,5 @@
 [project]
-name = "dore"
+name = "dore-memory"
 version = "0.1.0"
 description = "Local long-term memory for Claude Code and other coding agents, learned from everyday use"
 requires-python = ">=3.11"

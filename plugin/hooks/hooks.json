@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'exec \"${DORE_HOME:-$HOME/Documents/dore}/.venv/bin/dore-hook\" prompt' 2>/dev/null || true",
+            "command": "sh -c 'h=\"${DORE_HOME:-$HOME/.dore-memory}\"; [ -x \"$h/.venv/bin/dore-hook\" ] || h=\"$HOME/Documents/dore\"; exec \"$h/.venv/bin/dore-hook\" prompt' 2>/dev/null || true",
             "timeout": 20
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'exec \"${DORE_HOME:-$HOME/Documents/dore}/.venv/bin/dore-hook\" end' 2>/dev/null || true",
+            "command": "sh -c 'h=\"${DORE_HOME:-$HOME/.dore-memory}\"; [ -x \"$h/.venv/bin/dore-hook\" ] || h=\"$HOME/Documents/dore\"; exec \"$h/.venv/bin/dore-hook\" end' 2>/dev/null || true",
             "timeout": 60
           }
         ]

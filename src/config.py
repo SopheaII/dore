@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]  # project root (src/config.py)
-DATA = Path(os.environ.get("DORE_DATA", ROOT / "data"))
+# A source checkout keeps data/ in the repo; an installed package (pip, npx dore-memory) has no repo,
+# so its data goes to ~/.dore-memory/data (or $DORE_HOME/data).
+_HOME = Path(os.environ.get("DORE_HOME", Path.home() / ".dore-memory"))
+_DEFAULT_DATA = ROOT / "data" if (ROOT / "pyproject.toml").exists() else _HOME / "data"
+DATA = Path(os.environ.get("DORE_DATA", _DEFAULT_DATA))
 
 
 @dataclass
