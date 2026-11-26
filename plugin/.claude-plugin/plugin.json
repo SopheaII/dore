@@ -1,6 +1,6 @@
 {
   "name": "dore-memory",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Local long-term memory shared by all Claude Code sessions and projects (dore): learns facts, standing rules (trusted once repeated in other words) and updates from plain chat at 0 Claude tokens, ~11 tokens per prompt on average. Runs on this machine; nothing leaves it.",
   "author": { "name": "dore" },
   "license": "MIT"

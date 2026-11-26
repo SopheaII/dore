@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'h=\"${DORE_HOME:-$HOME/.dore-memory}\"; [ -x \"$h/.venv/bin/dore-hook\" ] || h=\"$HOME/Documents/dore\"; exec \"$h/.venv/bin/dore-hook\" prompt' 2>/dev/null || true",
+            "command": "sh -c 'h=\"${DORE_HOME:-$HOME/.dore-memory}\"; for d in \"$h\" \"$HOME/Documents/dore\"; do for f in \"$d/.venv/bin/dore-hook\" \"$d/.venv/Scripts/dore-hook.exe\"; do [ -f \"$f\" ] && exec \"$f\" prompt; done; done' 2>/dev/null || true",
             "timeout": 20
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'h=\"${DORE_HOME:-$HOME/.dore-memory}\"; [ -x \"$h/.venv/bin/dore-hook\" ] || h=\"$HOME/Documents/dore\"; exec \"$h/.venv/bin/dore-hook\" end' 2>/dev/null || true",
+            "command": "sh -c 'h=\"${DORE_HOME:-$HOME/.dore-memory}\"; for d in \"$h\" \"$HOME/Documents/dore\"; do for f in \"$d/.venv/bin/dore-hook\" \"$d/.venv/Scripts/dore-hook.exe\"; do [ -f \"$f\" ] && exec \"$f\" end; done; done' 2>/dev/null || true",
             "timeout": 60
           }
         ]

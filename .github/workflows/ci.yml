@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash  # Git Bash on Windows, the same shell Claude Code runs hooks in there
+
+jobs:
+  test:
+    name: Test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.optional || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64, os: ubuntu-latest, evals: true }
+          - { name: linux-arm64, os: ubuntu-24.04-arm }
+          - { name: macos-arm64, os: macos-latest }
+          - { name: macos-x64, os: macos-15-intel }
+          - { name: windows-x64, os: windows-latest }
+          # spaCy has no Windows ARM package: x64 Python, run emulated (what the installer does there).
+          - { name: windows-arm64, os: windows-11-arm, python: cpython-3.12-windows-x86_64-none, optional: true }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Cache models
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: data/cache
+          key: models-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/config.py') }}
+
+      - name: Install
+        run: |
+          uv venv .venv --python "${{ matrix.python || '3.12' }}"
+          uv pip install --python .venv -e ".[dev]"
+
+      - name: Tests
+        run: |
+          PY=.venv/bin/python; [ -f "$PY" ] || PY=.venv/Scripts/python.exe
+          "$PY" -m pytest -q
+
+      - name: Evals (no LLM)
+        if: matrix.evals
+        run: |
+          .venv/bin/python -m dore.eval.conversation
+          .venv/bin/python -m dore.eval.learning
+          .venv/bin/python -m dore.eval.stream
+
+  install:
+    name: Install + hook (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.optional || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64, os: ubuntu-latest }
+          - { name: linux-arm64, os: ubuntu-24.04-arm }
+          - { name: macos-arm64, os: macos-latest }
+          - { name: macos-x64, os: macos-15-intel }
+          - { name: windows-x64, os: windows-latest }
+          - { name: windows-arm64, os: windows-11-arm, optional: true }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      # No uv or Python set up here on purpose: the installer must find or install them itself.
+      - name: Claude Code CLI (for the plugin step)
+        continue-on-error: true
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Smoke test (macOS, Linux)
+        if: runner.os != 'Windows'
+        run: sh tests/smoke/smoke.sh
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tests/smoke/smoke.ps1

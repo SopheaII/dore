@@ -1,5 +1,8 @@
-from pathlib import Path
 import json
+import socket
+from pathlib import Path
+
+import pytest
 
 from dore.memory.embed import HashEmbedder
 from dore.integrations.hooks import _State, prompt_context, save_session
@@ -129,6 +132,7 @@ def test_personal_wish_is_not_a_rule_but_personal_preference_is(tmp_path):
     assert "install any app" not in first and "short answers" in first and "python 3.9" in first
 
 
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="Unix socket; Windows uses the 127.0.0.1 test below")
 def test_warm_helper_answers_and_client_falls_back(tmp_path):
     import os
     import shutil
@@ -168,6 +172,44 @@ def _warm_helper_check(tmp_path):
     assert "python 3.9" in out
     assert oct((tmp_path / SOCKET_NAME).stat().st_mode & 0o777) == "0o600"
     t.join(timeout=5)                                                    # quits when idle
+    assert not t.is_alive() and not (tmp_path / SOCKET_NAME).exists()
+
+
+def test_helper_over_local_tcp_needs_the_token(tmp_path, monkeypatch):
+    """Windows has no Unix sockets: the helper listens on 127.0.0.1 and checks a token."""
+    import json
+    import socket
+    import threading
+    import time
+    from dore.config import Config
+    from dore.integrations.hookclient import SOCKET_NAME, ask_helper
+    from dore.integrations.hookd import serve
+
+    monkeypatch.setenv("DORE_HOOK_TCP", "1")
+    cfg = Config(data_dir=tmp_path)
+    sock = str(tmp_path / SOCKET_NAME)
+    assert ask_helper(sock, "prompt", {}) is None                      # no helper: caller runs inline
+
+    def factory(c):
+        st = MemoryStore(tmp_path / "m.db", None, HashEmbedder())
+        st.add("keep the code python 3.9 compatible", trust="verified", project="shop")
+        return st
+    t = threading.Thread(target=serve, args=(cfg, 1.0, factory), daemon=True)
+    t.start()
+    for _ in range(100):
+        if (tmp_path / SOCKET_NAME).exists():
+            break
+        time.sleep(0.02)
+    out = ask_helper(sock, "prompt", {"prompt": "rename x", "session_id": "a", "cwd": str(tmp_path / "shop")})
+    assert "python 3.9" in out
+    info = json.loads((tmp_path / SOCKET_NAME).read_text())
+    with socket.create_connection(("127.0.0.1", info["port"]), timeout=5) as s:   # wrong token: no answer
+        s.sendall(json.dumps({"event": "prompt", "data": {"prompt": "rename x", "cwd": str(tmp_path / "shop")},
+                              "token": "wrong"}).encode() + b"\n")
+        reply = json.loads(s.makefile().readline())
+    assert reply["ok"] is False and "python 3.9" not in json.dumps(reply)
+    assert ask_helper(sock, "quit", {}) == ""                          # `dore-hook quit` (before uninstall)
+    t.join(timeout=2)
     assert not t.is_alive() and not (tmp_path / SOCKET_NAME).exists()
 
 

@@ -10,6 +10,8 @@ Checks from cheapest to dearest, baselines, conventions.
 | Conversation check | `.venv/bin/python -m dore.eval.conversation` | ~10 s, embedder only | any memory, learning or hook change |
 | Learning check | `.venv/bin/python -m dore.eval.learning [--real] [--styles]` | ~10 s, embedder + parser | any change to what is learned, replaced or retrieved |
 | Stream check | `.venv/bin/python -m dore.eval.stream` (= `bench stream`); `… stream seeds 5` for varied wording | ~7 s per seed | any learning, scope or hook change |
+| Install smoke test | `sh tests/smoke/smoke.sh` (Windows: `tests\smoke\smoke.ps1`): installs from this checkout into a temp folder, saves and recalls a fact through the real hook command, uninstalls | ~40 s, downloads packages | any change to `npm/`, `plugin/hooks/` or the helper |
+| CI (`.github/workflows/ci.yml`) | runs on every push and pull request: unit tests on Linux x64/arm64, macOS arm64/x64, Windows x64 (Windows arm64 optional); evals on Linux x64; the install smoke test on all of them | GitHub's machines | before publishing to npm |
 | Scale check | `.venv/bin/python -m dore.eval.scale [projects] [weeks] [seed]` | ~95 s (12 projects, 24 weeks, 8,640 prompts) | retrieval, ranking or growth changes |
 | Real replay | replay every real prompt from `~/.claude/projects/*/*.jsonl` (with Claude's replies as echo) into a throw-away store and read what is stored (script kept outside the repo: private data) | ~60 s | learning changes; report counts only |
 | Lint | `uvx pyflakes src tests` | ~1 s | after moving or splitting code |

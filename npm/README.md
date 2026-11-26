@@ -7,6 +7,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Claude_Code-plugin_0.5.1-d97757?style=flat-square" alt="Claude Code plugin 0.5.1" />
+  <a href="https://github.com/SopheaII/dore-memory/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/SopheaII/dore-memory/ci.yml?branch=master&style=flat-square&label=CI" alt="CI" /></a>
   <a href="https://www.npmjs.com/package/dore-memory"><img src="https://img.shields.io/npm/v/dore-memory?style=flat-square&logo=npm" alt="npm" /></a>
   <img src="https://img.shields.io/badge/python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+" />
   <img src="https://img.shields.io/badge/data-stays_local-2ea44f?style=flat-square" alt="Data stays local" />
@@ -108,7 +109,8 @@ claude plugin marketplace add ~/Documents/dore
 claude plugin install dore-memory@dore-memory
 ```
 
-Works on macOS and Linux, no GPU. It also works with opencode and other MCP agents.
+Works on macOS, Linux and Windows (Claude Code on Windows uses Git Bash, which dore's hooks need), no GPU.
+It also works with opencode and other MCP agents.
 
 ## How it works
 
