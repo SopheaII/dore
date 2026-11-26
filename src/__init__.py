@@ -1,19 +1,17 @@
-"""dore: a local AI that keeps learning from everyday use.
+"""dore: local long-term memory for Claude Code and other coding agents, learned from everyday use.
 
 Layers (each uses only the ones above it):
     config        paths and settings
     memory/       fast memory: records, search, replace rules (no model)
     learn/        what to learn from a message (rules, no model)
-    assistant/    local LLM chat: core model, agent, code/maths checkers
     integrations/ Claude Code hooks and helper, MCP server, bridge for other agents
-    apps/         command-line and browser chat
-    eval/         benchmarks and the real-model self-test
+    eval/         checks and benchmarks (no LLM)
 
 The public names below load on first use, so `dore-hook` (standard library only) stays fast.
 """
 
 _API = {"Config": "dore.config", "MemoryStore": "dore.memory", "Memory": "dore.memory",
-        "FastEmbedder": "dore.memory", "HashEmbedder": "dore.memory", "Agent": "dore.assistant.agent"}
+        "FastEmbedder": "dore.memory", "HashEmbedder": "dore.memory"}
 
 __all__ = list(_API)
 

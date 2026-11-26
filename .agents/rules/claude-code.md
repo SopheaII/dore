@@ -18,6 +18,7 @@ Measured 2026-11-24/25; keep these when changing the plugin.
 | Rules/decisions of the project | once per session, at the first prompt |
 | Learning (statements, corrections, updates, reactions) | 0 Claude tokens: runs locally in the hook |
 | Hook latency | ~0.07 s per prompt with the warm helper (was ~0.9 s: 0.68 s of it loading the embedder); parsing adds ~1 ms per sentence (the helper preloads the parser); first prompt after idle ~1.5 s (was ~1.1 s; +0.6 s loading spaCy `en_core_web_md`) |
+| Raw memory (every typed sentence that is not a note, `memory.episodes`) | 0 tokens; ~1.9 ms per prompt (parse + insert, no embedding); the warm helper consolidates after 20 s idle in batches of 64 (~0.1-0.3 s each, so a prompt waits at most one batch), and SessionEnd too |
 | Newer note shown next to an older one about the same thing | ~+6 tokens per question on `conversation long` (46 -> 52), for "newer wins" |
 
 - `dore-hook` = `dore.integrations.hookclient`: standard-library-only client that asks the warm helper `dore.integrations.hookd` over `data/hook.sock` (owner-only). If none answers, it starts one and handles the event itself, so hooks never fail because of it. The helper quits after 30 idle minutes, or before answering once dore's code has changed. `DORE_NO_HELPER=1` turns it off.

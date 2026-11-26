@@ -7,6 +7,9 @@ Why hooks instead of tool calls: every tool call is one more round trip that res
 whole conversation (~15-25k tokens). The prompt hook runs locally before Claude sees the
 prompt, and prints nothing when nothing is worth adding.
 
+Nothing the user types is lost: sentences no rule stores as a note are kept as raw memory
+(`memory.episodes`), consolidated while idle (`consolidate`) and recalled on a strong question match.
+
 What the prompt hook adds (measured thresholds, bge-small; see reports/token-design.md):
 - rules of this project and general rules ("keep code Python 3.9 compatible", "max discount
   50%"): once per session, at the first prompt, because they apply to all work;
@@ -25,16 +28,40 @@ import time
 from pathlib import Path
 
 from dore.config import Config
-from dore.learn.statements import (CORRECTION_LEAD, IMPLICIT_FEEDBACK, PERSONAL, QUESTION_START, REASK_SIMILARITY,
-                                   REQ_MAX_CHARS, message_facts, requirement_text, scope_for, user_facts)
-from dore.memory import SEARCHABLE_SQL, MemoryStore, same_frame
+from dore.learn.grammar import asks, tells, topic_key
+from dore.learn.statements import (ASKS_START, CORRECTION_LEAD, IMPLICIT_FEEDBACK, PERSONAL, QUESTION_START,
+                                   REASK_SIMILARITY,
+                                   REQ_MAX_CHARS, episode_sentences, message_facts, requirement_text, scope_for,
+                                   user_facts)
+from dore.memory import SEARCHABLE_SQL, MemoryStore, episodes, same_frame
+
+
+def _rules_version() -> str:
+    """Changes whenever the learning rules change, so raw memory is judged again with the new rules."""
+    learn = Path(__file__).resolve().parent.parent / "learn"
+    h = hashlib.sha1()
+    for name in ("statements.py", "grammar.py"):
+        try:
+            h.update((learn / name).read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:12]
+
+
+RULES_VERSION = _rules_version()
+# A question may recall a raw sentence from an earlier session that tells something (not a request).
+# Off (> 1): on the real replay (1,036 prompts) the bar 0.75 showed one on 11 questions, ~3 useful (an alert
+# preference, a feature design) and ~8 noise ("so what the fix from current code"); 0.80 showed 1, noise.
+# The embedder can't tell a lasting sentence from chatter (memory-learning.md). Raw memory still feeds
+# `consolidate`, and the next step (said again in another session) needs no bar on similarity alone.
+EPISODE_STRONG = 1.01
 
 STRONG = 0.65          # prompt-to-note similarity needed to add a note
 # Only notes close to the best match: on a broad prompt many loosely related notes all score
 # 0.65-0.73 ("your name is dore" matched every prompt saying "dore"). Measured on 18 labelled
 # prompts (2026-11-25): same useful notes found (7/8), wrong extra notes 9 -> 1.
 GAP = 0.05
-# Notes about the local dore assistant itself ("your name is dore") are for dore's own chat; shown to
+# Notes addressed to an assistant ("your name is dore") are not about the user's work; shown to
 # Claude they matched every prompt saying "dore" and name the wrong assistant.
 ABOUT_ASSISTANT = re.compile(r"^\s*(your\b|you are\b|you'?re\b)", re.I)
 SAME_THING = 0.72  # note-to-note: same thing (updates 0.73-0.82; but different facts reach 0.82 too, so this only adds, never hides)
@@ -42,7 +69,7 @@ MAX_RULES = 6
 MAX_NOTES = 3
 MAX_CHARS = 160        # per note shown
 MAX_TOTAL_CHARS = 600  # everything one prompt adds (~150 tokens; AGENTS.md / hook-cost skill)
-CONFLICT_SIMILARITY = 0.7  # same rule as Agent.conflict_similarity
+CONFLICT_SIMILARITY = 0.7  # a correction marks wrong only notes this close (and one detail changed)
 # Constraints / decisions that apply to all work in a project.
 RULE = re.compile(r"\b(must|always|never|don'?t|do not|should|shouldn'?t|keep\b.*\bcompatible|compatible with|"
                   r"only use|required?|max(imum)?|min(imum)?|at most|at least|cap(ped)?|limit|policy|"
@@ -60,6 +87,7 @@ class _State:
     """Per-session memory of what was already shown (so nothing is sent twice)."""
 
     def __init__(self, data_dir: Path, session_id: str):
+        self.session = session_id
         self.path = data_dir / "hook-state" / f"{re.sub(r'[^A-Za-z0-9_-]', '', session_id) or 'none'}.json"
         try:
             self.d = json.loads(self.path.read_text())
@@ -123,6 +151,16 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
             label += " (your earlier request)" if m.trust != "verified" else " (your repeated request)"
         cands.append((m.id, _line(m.id, m.content, label, m.created,
                                   limit=REQ_MAX_CHARS + 1 if m.kind == "requirement" else MAX_CHARS), True))
+    # Raw memory: a question that strongly matches something the user said in an earlier session that no
+    # rule kept as a note ("owasp top 10 is the security i care most about"). Same query vector, no new embedding.
+    vec = getattr(store, "last_query_vector", None)
+    if vec is not None and EPISODE_STRONG <= 1 and _asks(prompt):
+        said = set(state.d.get("episodes_shown", []))
+        for eid, content, created, _ in episodes.recall(store, vec, project, state.session, said,
+                                                        min_similarity=EPISODE_STRONG):
+            cands.append((-eid, _line(eid, content, " (you said once, not confirmed)", created).replace(
+                f"#{eid} ", f"#e{eid} ", 1), False))
+            state.d["episodes_shown"] = sorted(said | {eid})
     # Token cap: add lines while they fit; a line left out may still be shown on a later prompt.
     lines, used, last_shown = [], 0, []
     for mid, line, is_note in cands:
@@ -131,7 +169,8 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
             continue
         lines.append(line)
         used += len(line)
-        shown.add(mid)
+        if mid > 0:  # raw-memory lines (negative ids) are tracked in `episodes_shown`
+            shown.add(mid)
         if is_note:
             last_shown.append(mid)
     state.d["shown"] = sorted(shown)
@@ -240,10 +279,36 @@ RULE_SOURCE = "user-rule"  # the negated verb phrase of a long request ("do not 
 RULE_SAME = 0.85  # real use: true repeats 0.86-0.93, the next pair (a different rule) 0.77
 
 
-def save_rule_cores(store: MemoryStore, text: str, project: str) -> list[int]:
+DUPLICATE_WINDOW = 600  # s: the same text again this soon is one message handled twice, not a repeat
+
+
+def _handled_just_now(store: MemoryStore, gist: str, project: str) -> int | None:
+    """The hidden note of this very message if it was saved minutes ago: one message handled twice
+    (helper timeout + inline run), not the user saying it again."""
+    row = store.db.execute(
+        "SELECT id FROM memories WHERE kind='requirement' AND source='user' AND content=? AND project=? "
+        "AND coalesce(last_seen, created) > ?", (gist, project, time.time() - DUPLICATE_WINDOW)).fetchone()
+    return row[0] if row else None
+
+
+def _seen_again(store: MemoryStore, m, session_ids: set[int]) -> int:
+    """Count a hidden note said again. It becomes verified (shown) only when the repeat comes from
+    another session: said again in the same session it is still the task at hand ("please test …"
+    twice in one chat was shown as "your repeated request", 2026-11-26)."""
+    if m.id in session_ids:
+        return m.id
+    store.db.execute("UPDATE memories SET times_seen=times_seen+1, last_seen=? WHERE id=?", (time.time(), m.id))
+    if m.trust != "verified":
+        store.set_trust(m.id, "verified")
+    store.db.commit()
+    return m.id
+
+
+def save_rule_cores(store: MemoryStore, text: str, project: str, session_ids: set[int] = frozenset()) -> list[int]:
     """Keep each standing rule inside a long request ("..., and do not touch old code") as a short
-    hidden note. Said again in other words (in this project, or in another one), it is verified and
-    shown: the user repeating a rule is the signal that it lasts. The gist is kept as well."""
+    hidden note. Said again in other words in a later session (in this project, or in another one),
+    it is verified and shown: the user repeating a rule is the signal that it lasts. The gist is kept
+    as well."""
     from dore.learn.grammar import rule_cores
     ids = []
     for core in rule_cores(text):
@@ -251,22 +316,16 @@ def save_rule_cores(store: MemoryStore, text: str, project: str) -> list[int]:
                 if m.source == RULE_SOURCE and m.kind == "requirement"]
         here = [m for m in same if m.project == project]
         if here:
-            m = here[0]
-            store.db.execute("UPDATE memories SET times_seen=times_seen+1, last_seen=? WHERE id=?",
-                             (time.time(), m.id))
-            if m.trust != "verified":
-                store.set_trust(m.id, "verified")
-            store.db.commit()
-            ids.append(m.id)
+            ids.append(_seen_again(store, here[0], session_ids))
         else:  # said before only in another project: lasting for this user, kept in this project
             ids.append(store.add(core, kind="requirement", source=RULE_SOURCE, project=project,
-                                 trust="verified" if same else "unverified"))
+                                 trust="verified" if any(m.id not in session_ids for m in same) else "unverified"))
     return ids
 
 
-def save_requirement(store: MemoryStore, text: str, project: str) -> int | None:
+def save_requirement(store: MemoryStore, text: str, project: str, session_ids: set[int] = frozenset()) -> int | None:
     """Keep the gist of a long instruction as a low-trust project requirement. Said again (close in
-    meaning) in a later message, the existing note is strengthened (seen again, verified: the user
+    meaning) in a later session, the existing note is strengthened (seen again, verified: the user
     repeated it) instead of stored twice. Returns the note id."""
     if not text:
         return None
@@ -274,48 +333,55 @@ def save_requirement(store: MemoryStore, text: str, project: str) -> int | None:
                                     keyword=False) if m.kind == "requirement" and m.project == project
             and m.source != RULE_SOURCE]
     if same:
-        m = same[0]
-        store.db.execute("UPDATE memories SET times_seen=times_seen+1, last_seen=? WHERE id=?", (time.time(), m.id))
-        if m.trust != "verified":
-            store.set_trust(m.id, "verified")
-        store.db.commit()
-        return m.id
+        return _seen_again(store, same[0], session_ids)
     return store.add(text, kind="requirement", source="user", trust="unverified", project=project)
 
 
-def save_facts(store: MemoryStore, facts: list[str], project: str) -> list[int]:
-    """Store user statements (verified); each replaces older notes it updates."""
+def save_facts(store: MemoryStore, facts: list[str], project: str, created: float | None = None) -> list[int]:
+    """Store user statements (verified); each replaces older notes it updates. `created`: when it was
+    said, for a fact learned later from raw memory."""
     ids = []
     scopes = {f: ("" if _promoted(store, f, project) else scope_for(f, project)) for f in facts}
     for scope in dict.fromkeys(scopes.values()):
         group = [f for f in facts if scopes[f] == scope]
         ids += store.add_many(group, kind="statement", source="user", trust="verified", project=scope,
-                              supersede=True)
+                              supersede=True, keys=[topic_key(f) for f in group], created=created)
     return ids
 
 
-def learn_message(store: MemoryStore, msg: str, project: str, echo: str = "") -> list[int]:
+def learn_message(store: MemoryStore, msg: str, project: str, echo: str = "",
+                  session_ids: set[int] | None = None, session: str = "") -> list[int]:
     """Everything one user message teaches, in one place (prompt hook, SessionEnd, opencode bridge):
     short facts (not ones Claude wrote and the user pasted back); else the gist of a long instruction
-    as a hidden requirement."""
-    ids = save_facts(store, not_echoed(message_facts(msg), echo), project)
+    as a hidden requirement. Every other sentence the user typed is kept as raw memory (`episodes`).
+    `session_ids`: hidden notes this session already saved (a repeat inside one session doesn't make
+    them lasting); it grows with this message's."""
+    seen = session_ids if session_ids is not None else set()
+    facts = not_echoed(message_facts(msg), echo)
+    ids = save_facts(store, facts, project)
+    episodes.add(store, not_echoed(episode_sentences(msg, facts), echo), project, session, judged=RULES_VERSION)
     req = not_echoed([requirement_text(msg)], echo)
+    if req and req[0] and not ids and (dup := _handled_just_now(store, req[0], project)):
+        seen.add(dup)
+        return [dup]
     if req and req[0]:
-        save_rule_cores(store, req[0], project)  # rules inside any long message, facts or not
+        seen |= set(save_rule_cores(store, req[0], project, seen))  # rules inside any long message
         if not ids:
-            rid = save_requirement(store, req[0], project)
+            rid = save_requirement(store, req[0], project, seen)
             ids = [rid] if rid else []
+            seen |= set(ids)
     return ids
 
 
 def save_session(store: MemoryStore, transcript: Path, project: str,
-                 learned: set[str] | None = None) -> list[int]:
-    """Session end: store statements from messages the prompt hook didn't already learn
+                 learned: set[str] | None = None, session_ids: set[int] | None = None, session: str = "") -> list[int]:
+    """Session end: store statements from messages the prompt hook didn't already handle
     (`learned` = their message_key), e.g. when the hook timed out."""
     learned = learned or set()
+    session_ids = set(session_ids or ())
     echo = assistant_text(transcript, max_bytes=4_000_000)
     ids = [i for msg in _user_messages(transcript) if message_key(msg) not in learned
-           for i in learn_message(store, msg, project, echo)]
+           for i in learn_message(store, msg, project, echo, session_ids, session)]
     store.save(force=True)
     return ids
 
@@ -325,9 +391,15 @@ def _is_question(text: str) -> bool:
     return t.endswith("?") or bool(QUESTION_START.match(t))
 
 
+def _asks(text: str) -> bool:
+    """A real question (question mark, question word or auxiliary first, or an auxiliary before its
+    subject), not a "please ..." request, which `_is_question` also counts."""
+    t = text.strip()
+    return t.endswith("?") or bool(ASKS_START.match(t)) or asks(t[:300])
+
+
 def react(store: MemoryStore, prompt: str, state: _State) -> str:
-    """Learn from how the user's new prompt reacts to the notes shown with the previous one
-    (same rules as dore's own chat, Agent._react):
+    """Learn from how the user's new prompt reacts to the notes shown with the previous one:
     - "No, X" / "Actually X": notes shown last time that X changes by one detail are marked
       wrong (kept). Facts in X are saved by learn_prompt and replace what they update;
     - the same question again: the notes shown didn't help (-1);
@@ -360,9 +432,13 @@ def on_prompt(store: MemoryStore, prompt: str, project: str, state: _State, echo
     statements right away (so a correction counts in this session, not only at its end), then
     pick notes for this prompt. Returns the text to add ("" = nothing, 0 tokens)."""
     state.d["last_signal"] = react(store, prompt, state)
-    new_ids = learn_message(store, prompt, project, echo)
+    session_ids = set(state.d.get("saved", []))
+    new_ids = learn_message(store, prompt, project, echo, session_ids, state.session)
+    state.d["saved"] = sorted(session_ids)
+    # Handled, whatever it taught (also only hidden rules): SessionEnd must not count it a second time.
+    state.d.setdefault("handled", []).append(message_key(prompt))
     if new_ids:
-        state.d.setdefault("learned", []).append(message_key(prompt))
+        state.d.setdefault("learned", []).append(message_key(prompt))  # stored a note (checks read this)
         # Never echo back what the user just said.
         state.d["shown"] = sorted(set(state.d["shown"]) | set(new_ids))
     text = prompt_context(store, prompt, project, state)
@@ -373,8 +449,12 @@ def on_prompt(store: MemoryStore, prompt: str, project: str, state: _State, echo
 
 def open_store(cfg: Config) -> MemoryStore:
     from dore.memory.embed import FastEmbedder
-    return MemoryStore(cfg.db_path, cfg.index_path,
-                       FastEmbedder(cfg.embed_model, cache_dir=str(cfg.cache_dir / "fastembed")))
+    store = MemoryStore(cfg.db_path, cfg.index_path,
+                        FastEmbedder(cfg.embed_model, cache_dir=str(cfg.cache_dir / "fastembed")))
+    # Notes saved before topic keys existed get one, a batch per start (once each; ~2 ms a note).
+    if old := store.missing_keys():
+        store.set_keys([(i, topic_key(c)) for i, c in old])
+    return store
 
 
 def run_event(store: MemoryStore, cfg: Config, event: str, data: dict) -> str:
@@ -388,8 +468,37 @@ def run_event(store: MemoryStore, cfg: Config, event: str, data: dict) -> str:
         return text
     if event == "end" and data.get("transcript_path"):
         state = _State(cfg.data_dir, str(data.get("session_id", "")))
-        save_session(store, Path(data["transcript_path"]), project, set(state.d.get("learned", [])))
+        save_session(store, Path(data["transcript_path"]), project,
+                     set(state.d.get("learned", [])) | set(state.d.get("handled", [])), set(state.d.get("saved", [])),
+                     str(data.get("session_id", "")))
+        consolidate(store)
     return ""
+
+
+def _known(store: MemoryStore, fact: str) -> bool:
+    """The same words are already a note, in any state: a note the user archived, marked wrong or saw
+    replaced is never brought back from raw memory."""
+    return store.db.execute("SELECT 1 FROM memories WHERE lower(trim(content, ' .!')) = lower(trim(?, ' .!')) "
+                            "LIMIT 1", (fact,)).fetchone() is not None
+
+
+def consolidate(store: MemoryStore, limit: int = 64) -> dict:
+    """Work on raw memory while the user is away (warm helper idle, SessionEnd), like sleep: give new
+    episodes a vector so a later question can recall them, and judge again those not judged with
+    today's learning rules, so a fixed rule also learns what was said before. A fact learned this way
+    keeps the date it was said (an older date never replaces a newer note). Small batches: call again
+    until it returns zeros. No Claude tokens."""
+    embedded = episodes.embed_pending(store, limit)
+    learned = 0
+    todo = episodes.to_judge(store, RULES_VERSION, limit)
+    for eid, content, project, created in todo:
+        facts = [f for f in message_facts(content) if not _known(store, f)]
+        ids = save_facts(store, facts, project, created=created) if facts else []
+        episodes.mark_judged(store, eid, RULES_VERSION, scope_for(content, project), tells(content),
+                             ids[0] if ids else None)
+        learned += bool(ids)
+    store.save()
+    return {"embedded": embedded, "judged": len(todo), "learned": learned}
 
 
 def main(argv: list[str] | None = None):

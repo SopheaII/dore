@@ -85,8 +85,9 @@ def score_retrieval(embedder) -> dict:
     d = Path(tempfile.mkdtemp(prefix="dore-ret-"))
     store = MemoryStore(d / "m.db", None, embedder)
     distract = [t for t, e, _, st in DEV + HELDOUT if e and st not in ("other-language", "mixed", "correction")]
-    store.add_many(distract, kind="statement", trust="verified", project="p")
-    ids = [store.add(n, kind="statement", trust="verified", project="p") for n, _, _ in RETRIEVAL]
+    from dore.learn.grammar import topic_key  # as the hook saves facts (`hooks.save_facts`)
+    store.add_many(distract, kind="statement", trust="verified", project="p", keys=[topic_key(t) for t in distract])
+    ids = [store.add(n, kind="statement", trust="verified", project="p", key=topic_key(n)) for n, _, _ in RETRIEVAL]
     ok, fails = 0, []
     for (note, q, style), mid in zip(RETRIEVAL, ids):
         st = _State(d, f"q{mid}")

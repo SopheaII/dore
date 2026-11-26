@@ -1,204 +1,378 @@
-# dore
+<h1 align="center">dore</h1>
 
-A small local AI that **keeps learning from everyday use**: the questions you ask, the tasks it solves, the documents you load and the corrections you make. It runs on a normal CPU laptop.
+<p align="center">
+  <strong>Local long-term memory for Claude Code and other coding agents, that keeps learning from everyday use.</strong><br/>
+  Say a fact, a decision or a rule once, in your own words. Every later session remembers it.<br/>
+  0 Claude tokens to learn · nothing leaves your machine · no model training.
+</p>
 
-Inspired by how the brain splits learning between a fast store (hippocampus) and a slow one (cortex):
+<p align="center">
+  <a href="#see-it-work">See it work</a> ·
+  <a href="#install-for-claude-code">Install</a> ·
+  <a href="#test-results">Test results</a> ·
+  <a href="#limits">Limits</a> ·
+  <a href="AGENTS.md#roadmap-one-step-at-a-time">Roadmap</a> ·
+  <a href="REFERENCES.md">Where the ideas come from</a>
+</p>
 
-| Part | Role | Learns |
-|---|---|---|
-| Stable core | Small pretrained LLM (Llama 3.2 1B, GGUF) | Nothing: the model is never trained (LoRA dropped) |
-| Fast memory | SQLite + FAISS vector search (RAG) | Facts, instantly |
-| Thinking loop | Draft → check → fix | Only when a real checker exists |
-| Checkers | Python sandbox, maths evaluator | Decide what counts as `verified` |
-| Memory server | One process shared by Claude Code and other agents (MCP) | Facts from every connected tool |
+<p align="center">
+  <img src="https://img.shields.io/badge/Claude_Code-plugin_0.5.0-d97757?style=flat-square" alt="Claude Code plugin 0.5.0" />
+  <img src="https://img.shields.io/badge/python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+" />
+  <img src="https://img.shields.io/badge/runs_on-CPU_laptop-555?style=flat-square" alt="Runs on a CPU laptop" />
+  <img src="https://img.shields.io/badge/data-stays_local-2ea44f?style=flat-square" alt="Data stays local" />
+</p>
 
-See [`AGENTS.md`](AGENTS.md) for the roadmap and design rules.
+## Test highlights
 
-dore is not a new invention: it combines ideas from Voyager, Letta, SEAL, Google's Nested Learning, the Tiny Recursive Model, SLIDE, RAG, LoRA and the neuroscience of memory. See [`REFERENCES.md`](REFERENCES.md) for what comes from where.
+Measured on 2026-11-26 on an Apple M1 Mac (8 cores, 8 GB RAM, CPU only). Every number comes from a command you can run
+yourself ([Test results](#test-results)).
 
-## Quick start
+- 🧠 **Remembers across sessions:** 80 of 80 questions right after a 20-session coding chat (486 messages,
+  53 facts that changed 1–3 times). An outdated value was shown 0 of 53 times.
+- 🔁 **Follows your changes:** 35 of 35 update cases right. "I switched my editor to Helix" replaces
+  "My editor is Neovim"; the old note is kept in history, never deleted.
+- 🪶 **Almost free:** learning costs 0 Claude tokens (it runs in a local hook). On 1,036 real prompts from
+  the author's own Claude Code sessions, dore added 7.3 tokens per prompt on average, and nothing at all when
+  nothing matched.
+- ⚡ **Fast:** 12 ms per prompt (median) with 24 weeks of memory from 12 projects (8,640 prompts).
+- 🧹 **Keeps chatter out:** 0 of 39 held-out requests, questions and small talk were stored, while 38 of 41
+  held-out facts were stored in the right place. "Held-out" means these sentences were never used to tune the rules.
+- 🗂️ **Right project:** facts about you reach every project, a project's facts stay in it: 0 leaks over
+  4 simulated weeks × 5 runs.
+
+## What is dore?
+
+A new Claude Code session only knows what is written in files like `CLAUDE.md`. What you said in chat (your
+stack, your server, "don't touch the payment module", "we moved to Fly.io") is gone when the session ends, so
+you say it again, and again.
+
+dore fixes that with two Claude Code hooks and a small memory on your laptop:
+
+1. **It listens.** Every message you type is read locally. Lasting statements (facts, decisions, settings,
+   preferences, "always / never / don't" rules) become notes. Requests, questions, pasted logs and small talk don't.
+2. **It keeps notes up to date.** A newer statement about the same thing replaces the older one ("now",
+   "switched to", "moved off"…). Nothing is ever deleted: replaced notes stay in history.
+3. **It reminds Claude only when it helps.** Before each prompt, dore searches its notes. On a strong match it
+   adds the note, with its date, to the prompt. No match: nothing is added, 0 tokens.
+
+No cloud service, no MCP tools taking space in Claude's prompt, no model training. The language model never
+changes; only the memory grows.
+
+## See it work
+
+This is the real output of `python -m dore.eval.demo`: four sessions in two projects, sent through the same
+prompt hook Claude Code calls (real embedder and grammar parser, no LLM, a throw-away store, made-up facts).
+
+```text
+── Session 1 · Monday · project "shop" ──────────────────────────────
+you>  My name is Dara. My editor is Neovim.
+      saved #1 (every project)
+      saved #2 (every project)
+      dore adds nothing (0 tokens)
+you>  We deploy the shop API to Render. The database is Postgres 16.
+      saved #3 (project shop only)
+      saved #4 (project shop only)
+      dore adds nothing (0 tokens)
+you>  Please don't reformat existing code.
+      saved #5 (project shop only)
+      dore adds nothing (0 tokens)
+you>  fix the login bug please
+      dore adds nothing (0 tokens)
+you>  can you check why the test fails?
+      dore adds nothing (0 tokens)
+you>  hmm that's not right, the test still fails
+      saved #6 (project shop only)                    ← a known miss: see Limits
+      dore adds nothing (0 tokens)
+
+── Session 2 · Thursday · project "shop" ──────────────────────────────
+you>  I switched my editor to Helix.
+      saved #7 (every project), replaces #2 'My editor is Neovim.'
+      dore adds:                                      ← this project's rules, once per session
+        - #5 (2026-11-26) Don't reformat existing code.
+you>  We moved off Render, the shop API deploys to Fly.io now.
+      saved #8 (project shop only), replaces #3 'We deploy the shop API to Render.'
+      dore adds nothing (0 tokens)
+
+── Session 3 · next week · project "blog" ──────────────────────────────
+you>  Which editor do I use?
+      dore adds:
+        - #7 (2026-11-26) I switched my editor to Helix.
+you>  Where does the shop API deploy?
+      dore adds:
+        - #8 (2026-11-26) (from project shop) We moved off Render, the shop API deploys to Fly.io now.
+you>  What is my name?
+      dore adds:
+        - #1 (2026-11-26) My name is Dara.
+you>  add a dark mode toggle to the header
+      dore adds nothing (0 tokens)
+
+── Session 4 · next week · project "shop" ──────────────────────────────
+you>  Where do we deploy the API?
+      dore adds:
+        - #5 (2026-11-26) Don't reformat existing code.
+        - #8 (2026-11-26) We moved off Render, the shop API deploys to Fly.io now.
+you>  Which database version do we run?
+      dore adds:
+        - #4 (2026-11-26) The database is Postgres 16.
+
+Notes: 8 saved, 2 replaced (kept in SQLite, out of search). Added ~14 tokens per prompt (characters / 4).
+```
+
+In Claude Code, the added lines start with `dore memory (use if relevant; trust user code/instructions over it):`.
+
+| What the demo shows | Result |
+|---|---|
+| Facts kept (name, editor, deploy target, database, a "don't" rule, 2 updates) | 7 of 7 |
+| Updates that replaced the old note (Neovim → Helix, Render → Fly.io) | 2 of 2, no old value shown afterwards |
+| Questions answered from memory with the current value | 5 of 5 |
+| Requests and questions stored as notes | 0 of 8 |
+| Junk stored | 1 ("hmm that's not right, the test still fails") |
+| Prompts where dore added nothing | 8 of 14 |
+
+The facts about Dara (name, editor) reached the blog project; the shop's database and rule did not. A question
+in another project that strongly matches a project fact is shown, marked "(from project shop)".
+
+## What it helps with
+
+- **Stop repeating yourself:** your stack, ports, servers and deploy targets are told once and found in every new session.
+- **Standing rules:** "don't reformat existing code", "always use pnpm" are shown at the start of each session in that project.
+- **Things that change:** the newest value wins and Claude sees the date, so it doesn't use last month's port.
+- **You, everywhere:** your name, editor and style preferences are general; project facts stay in their project.
+- **Many sessions at once:** all sessions share one memory. A fact said in one is found in the next prompt of another.
+- **Your past sessions too:** `backfill` learns facts from old Claude Code logs ([below](#learn-from-past-sessions)).
+- **Other agents:** opencode, and any MCP client, use the same memory ([below](#other-coding-agents)).
+
+## How it works
+
+```text
+ you type a prompt in Claude Code
+            │
+            ▼
+ ┌──────────── UserPromptSubmit hook · runs locally · ~12–24 ms ─────────────────────┐
+ │ 1. react   did the notes shown last time help? (asked again −1, moved on +1)      │
+ │ 2. learn   sentences → grammar gate (spaCy) → facts, rules, updates               │
+ │            → save as notes; an update replaces the older note it changes          │
+ │            → every other sentence kept as raw memory, judged again when the       │
+ │              rules improve, so a rule fixed later also learns from the past       │
+ │ 3. recall  hybrid search on this project + general notes                          │
+ │            (FAISS meaning search + SQLite FTS5 keywords, so IDs like SRV-4471     │
+ │            and 10.0.0.5 are found) → strong match: add the note and its date      │
+ └───────────────────────────────────────────────────────────────────────────────────┘
+            │  nothing matched → nothing added (0 tokens) · hard cap ~150 tokens
+            ▼
+      Claude answers
+            │
+ SessionEnd hook: learns anything the prompt hook missed (0 Claude tokens)
+```
+
+A small warm helper answers the hooks so the embedder and parser stay loaded; it quits after 30 idle minutes.
+Nothing needs to be kept running. If the helper is not there, the hook starts it and still answers.
+
+### Core ideas
+
+| Idea | What it means |
+|---|---|
+| **Fast memory, fixed model** | Like the brain's split between hippocampus (learns at once) and cortex (changes slowly): the LLM is never trained, facts go into fast memory at once. |
+| **Grammar, not word lists** | What becomes a note is decided by sentence shape and grammar, so it works for anyone's wording. Rules are designed on one set of sentences and judged on another. |
+| **Trust levels** | `verified` (you said it), `unverified` (an agent wrote it), `wrong` (corrected; kept, never shown as true). An agent's note never overrules yours. |
+| **Newer wins** | Every note has a date; a newer statement about the same thing replaces the older one. |
+| **Never deleted** | Replaced, wrong and archived notes stay in SQLite. Back up one file to back up everything. |
+| **0 tokens by default** | Learning is local; nothing is added to a prompt unless a note strongly matches it. |
+
+## Install for Claude Code
+
+Needs Python 3.11+ ([uv](https://docs.astral.sh/uv/) recommended), Claude Code, macOS or Linux. No GPU.
 
 ```bash
+# put the repo at ~/Documents/dore (or anywhere, then set DORE_HOME=/path/to/dore)
+cd ~/Documents/dore
 uv venv .venv --python 3.12
 uv pip install --python .venv/bin/python -e ".[dev]"
 
-# download a model (about 0.8 GB)
-mkdir -p data/models
-curl -L -o data/models/Llama-3.2-1B-Instruct-Q4_K_M.gguf \
-  https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf
-
-.venv/bin/dore            # chat
-.venv/bin/dore-web        # same chat in a browser: http://127.0.0.1:8000
-.venv/bin/pytest          # tests (no model needed)
-```
-
-## Check that it remembers
-
-Just talk to it; no special command is needed:
-
-```text
-you> My cat is called Mochi and I live in Phnom Penh.
-you> /load notes.md
-you> /quit
-$ .venv/bin/dore                      # new session
-you> What is my cat called?           → Your cat is called Mochi.
-you> Where do I live?                 → Phnom Penh.
-you> What is my dog called?           → I don't have any information about your dog.
-you> /mem cat                         → shows the stored memory and its trust level
-```
-
-## Browser chat
-
-`.venv/bin/dore-web` serves the same chat at http://127.0.0.1:8000:
-
-- **model** dropdown lists every GGUF in `data/models/`.
-- **project** field is the same as `/project` in the CLI (empty = general).
-- The same commands work (`/teach`, `/correct`, `/good`, `/bad`, `/mem`, `/stats`, `/projects`, `/load`, `/code`, `/new`).
-
-It listens on localhost only (there is no login). Options: `--host`, `--port`, `--model`
-(default model name such as `3b`, or a `.gguf` path), `--threads`. Only one model is kept in
-RAM, so switching frees the old one first; the first message with a new model is slower.
-
-To experiment without touching your real memory, use a throw-away data folder:
-
-```bash
-export DORE_DATA=$PWD/data/tmp-test && mkdir -p $DORE_DATA
-ln -s ../models $DORE_DATA/models && ln -s ../cache $DORE_DATA/cache
-.venv/bin/dore
-rm -rf $DORE_DATA      # when done
-```
-
-## What it learns, and what it doesn't
-
-| You do | It learns |
-|---|---|
-| Say something ("I work as a nurse.") | Each sentence is saved as a fact told by you (questions are not saved) |
-| `/load` a file | The file is split into pieces and is searchable at once |
-| `/code` with tests | Code that passes the tests is saved as a verified lesson |
-| Get an answer | The answer is kept but **not reused** until you approve it with `/good`, so made-up answers can't reinforce themselves |
-| `/correct` | The correction is saved; the old answer is marked wrong and never used again |
-
-Limits:
-- It believes what you tell it; fix false statements with `/correct`.
-- Questions worded very differently from what you said may not find the fact.
-- The embedding model is English-only.
-- The default 1B model finds and repeats facts well but reasons weakly. Try the 3B model (about 2× slower): download `Llama-3.2-3B-Instruct-Q4_K_M.gguf` from the same `bartowski` page and run `.venv/bin/dore --model data/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf`.
-
-## Chat commands
-
-| Command | Effect |
-|---|---|
-| *(plain text)* | Chat. Statements you make ("My cat is called Mochi.") are learned automatically; questions are not. The model's answer is kept but **not reused** until you approve it |
-| `/teach <fact>` | Save a `verified` fact |
-| `/correct <text>` | Correct the last answer (old answer marked `wrong`) |
-| `/good`, `/bad` | `/good` approves the last answer (it becomes verified and reusable); both rate the memories it used |
-| `/code <task>` | Solve with the code checker; passing tests → `verified` lesson |
-| `/load <file>` | Load a text/markdown file into memory |
-| `/mem <query>`, `/stats` | Inspect memory |
-| `/protect <id>` | Never auto-archive this memory |
-| `/project <name>`, `/projects` | Switch project / list projects. Facts about you ("my…", "I…") stay general and are seen everywhere; other facts belong to the current project. `dore --project shop` starts in a project |
-
-Search is **hybrid**: meaning (FAISS) plus exact keywords (SQLite FTS5), so codes, IPs and IDs such as `SRV-4471` or `10.0.0.5` are found even when the meaning search misses them. Near-identical results are skipped so they don't fill every slot.
-
-## Use dore's memory from Claude Code (plugin)
-
-Install once; the plugin is hooks only (no MCP server, no tools in Claude's prompt). A small warm helper
-answers the hooks and quits after 30 idle minutes. Nothing to keep running. All sessions share the same `data/memory.db`, so a fact saved
-in one session is found in the next, and two sessions open at the same time see each other's notes.
-
-```bash
 claude plugin marketplace add ~/Documents/dore
 claude plugin install dore@dore
 ```
 
-(If dore lives elsewhere, set `DORE_HOME=/path/to/dore`.)
+That's all. Use Claude Code as usual. The small embedding model (`bge-small-en-v1.5`) downloads once on first use.
 
-What the plugin adds to Claude Code, designed to spend as few tokens as possible:
+**Try it:** tell Claude a fact in one session ("Our staging server runs on port 8443."), then open a new session,
+even in another folder for facts about you, and ask about it.
 
-| Part | When | Cost |
+**See what dore has stored:**
+
+```bash
+sqlite3 data/memory.db "SELECT id, project, trust, content FROM memories
+                        WHERE archived = 0 AND replaced_by IS NULL ORDER BY id DESC LIMIT 20"
+```
+
+(`project` empty = general, seen in every project.)
+
+### What it costs in Claude Code
+
+| What | Cost |
+|---|---|
+| Learning (facts, rules, updates, corrections) | 0 Claude tokens: runs in the local hook |
+| A prompt with nothing relevant | 0 tokens: the hook prints nothing |
+| A note added | ~15–55 tokens each (estimate: characters / 4); hard cap ~150 tokens per prompt |
+| On real use (1,036 real prompts replayed) | 7.3 tokens added per prompt on average |
+| Tools in Claude's prompt | none: the plugin has no MCP server (one costs ~200 tokens on every request) |
+| Hook time | ~0.07 s per prompt with the warm helper; ~1.5 s on the first prompt after 30 idle minutes |
+
+### Learn from past sessions
+
+dore can read your old Claude Code logs (`~/.claude/projects/*/*.jsonl`; Claude Code keeps them 30 days by
+default) and learn the facts you typed there:
+
+```bash
+.venv/bin/python -m dore.integrations.backfill            # dry run: lists the facts it would learn, writes nothing
+.venv/bin/python -m dore.integrations.backfill --apply    # keep them
+```
+
+Read the list first: on the author's 98 real session logs, about half of the 43 proposed facts were real
+(tech stack, devices, "don't use java") and half were junk (reports, a pasted error, requests).
+
+Notes saved under older rules can be judged again with today's rules (archived, never deleted):
+`.venv/bin/python -m dore.learn.recheck` (dry run), then `--apply`.
+
+## What it learns, and what it doesn't
+
+| You say | dore |
+|---|---|
+| "We deploy to Render." · "My editor is Neovim." | Saves a fact (`verified`, dated) |
+| "Please don't reformat existing code." · "Always use spaces." | Saves a standing rule, shown once per session in that project |
+| "I switched my editor to Helix." · "We moved off Render." | Saves the update; the old note leaves search (kept in history) |
+| "No, the max discount is 40%." | Marks the note it corrects `wrong` (kept), saves the new value |
+| "fix the login bug please" · "can you check why…?" | Nothing: a request or a question |
+| A pasted log, stack trace or code | Nothing: a paste, not a statement |
+| A long instruction with constraints | Kept hidden; shown only once you say it again in another session |
+
+Scope: facts about you ("I…", "my…") and the organisation ("our production server…") are general and reach every
+project. Everything else stays in the project (the session's folder name).
+
+## Test results
+
+Run on 2026-11-26 on an Apple M1 Mac, CPU only. None of these needs an LLM or Claude tokens.
+
+| Check | Command | What it tests | Result |
+|---|---|---|---|
+| Unit tests | `.venv/bin/pytest -q` | 128 tests | 127 pass; 1 (warm helper socket) needs Linux |
+| Conversation | `.venv/bin/python -m dore.eval.conversation` | 20 sessions, 486 messages, 80 questions; facts change 1–3 times | 80/80 correct, old value shown 0/53, ~49 tokens per question |
+| | | short: 2 sessions, 7 questions, corrections in plain words | 5/7 correct, old value shown 0/3, ~73 tokens per question |
+| Learning | `.venv/bin/python -m dore.eval.learning` | which sentences become notes, and where | see the next table |
+| Stream | `.venv/bin/python -m dore.eval.stream seeds 5` | 4 weeks of use in 3 projects (~500 messages, 29 facts), 5 wordings | see below |
+| Scale | `.venv/bin/python -m dore.eval.scale` | 12 projects × 24 weeks, 8,640 prompts, 112 facts | see below |
+| Demo | `.venv/bin/python -m dore.eval.demo` | the example above | as shown |
+
+**Learning** (DEV = sentences the rules were designed on; HELDOUT = sentences kept aside to judge them fairly):
+
+| Set | Facts stored in the right place | Junk stored |
 |---|---|---|
-| **Prompt hook**: adds this project's rules once per session, and other notes only when they strongly match the prompt (never the same note twice) | before each prompt, runs locally (~0.2–1 s) | 0 tokens when nothing matches; ~55 per note added |
-| **Session-end hook**: saves the facts *you* stated (decisions, settings, preferences) from the session log; requests, questions and small talk are skipped | when a session ends, locally | 0 Claude tokens |
+| DEV | 52 of 56 | 2 of 73 |
+| HELDOUT | 38 of 41 | 0 of 39 |
+| Updates (replace the old note, or rightly keep both) | 35 of 35 | |
+| Rephrased question finds its note | 9 of 10 | |
 
-Facts about you ("my…") and the organisation ("our production server…") are general and reach every
-project; other facts stay in their project. Measured on a real 6-session test: same or better answers than
-Claude Code alone, 23 instead of 30 requests, 3% cheaper (`reports/token-design.md`).
+**Stream** (mean of 5 runs with different wording; 30 questions a week):
 
-The plugin has no MCP server (removed 2026-11-25: ~200 tokens per request and a slow start, while the hooks
-already do the learning). So Claude can't search or save memory on its own; only your messages are learned.
-To give an agent the tools anyway (`recall`, `remember`, `correct`; `ask_local` with `--local-models`), run
-`.venv/bin/dore-server` (HTTP, http://127.0.0.1:8765/mcp) or add `dore-server --stdio` to its MCP config.
+| Week | Correct | Old value also shown | Leaks to other projects |
+|---|---|---|---|
+| 1 | 28.6 / 30 | 0 | 0 |
+| 2 | 28.4 / 30 | 0.4 | 0 |
+| 3 | 26.2 / 30 | 2.0 | 0 |
+| 4 | 26.0 / 30 | 2.4 | 0 |
+
+Facts missed 0 of 29; junk stored 10.8 of ~467 non-fact messages; 3.7 tokens added per work prompt.
+
+**Scale** (memory keeps growing for 24 weeks; every known fact asked every 4 weeks):
+
+| Week | 8 | 12 | 16 | 20 | 24 |
+|---|---|---|---|---|---|
+| Correct | 81% | 80% | 80% | 80% | 81% |
+| Old value shown | 0/3 | 1/5 | 1/7 | 1/8 | 2/12 |
+
+Facts missed 3 of 112; junk notes 195 from ~8,500 noise prompts; 6.4 tokens added per work prompt;
+hook 12 ms median, 26 ms p95. Accuracy holds as memory grows.
+
+**Real prompts** (private replay of the author's own Claude Code logs; counts only):
+
+| Check | Result |
+|---|---|
+| 1,036 real prompts replayed | 7.3 tokens added per prompt, hook 24 ms median |
+| A fresh sample of 118 real prompts, labelled by hand | junk 5 of 118 with the grammar gate (27 of 118 with the old word lists) |
+| Replay after the 2026-11-26 rules | 70 → 46 notes, every real fact kept |
+
+Speed benchmarks: `.venv/bin/python -m dore.eval.bench search|embed|memory|scale` (save results under
+`reports/`, git-ignored: they describe one machine).
+
+## Limits
+
+Measured, not guessed:
+
+- **Synonyms:** "What is my job?" doesn't find "I work as a nurse" (the 1 miss in 10 rephrased questions). An
+  update that uses another word for the topic ("db" vs "database") keeps both notes; the newer is shown first.
+- **One fact per sentence works best:** "My name is Dara and my editor is Neovim" is one note, so a later
+  editor change can't replace only half of it (both are shown, newer first).
+- **Some complaints look like facts:** "hmm that's not right, the test still fails" is stored (2 of 73 DEV junk;
+  195 junk notes in 8,640 scale prompts).
+- **Stale values creep in over time:** after 4 weeks of changes, ~2.4 of 30 answers also show an old value
+  (Claude sees the dates, newer first).
+- **Only your messages are learned,** not Claude's replies or tool calls: on 701 real turns those were mostly task logs.
+- **English only:** other languages (Khmer, for example) are neither learned nor found.
+- **It believes what you say.** Correct it in plain words ("No, it's 40%").
+- **No UI yet** to browse notes: use the `sqlite3` command above.
+
+## Other coding agents
+
+- **opencode:** the plugin in `plugin/opencode` uses `dore-bridge`, the same learning path as the Claude Code hook.
+- **Any MCP client:** `.venv/bin/dore-server` (shared HTTP server at http://127.0.0.1:8765/mcp, no login: keep it
+  on localhost) or `dore-server --stdio` in the client's MCP config. Tools: `recall`, `remember`, `correct`.
+  Notes an agent writes are `unverified` and never overrule yours. Each tool costs tokens on every request, which
+  is why the Claude Code plugin uses hooks only.
 
 After changing files in `plugin/`, raise its version and run `claude plugin marketplace update dore` and
 `claude plugin update dore@dore`. Python changes in `src/` apply to new sessions automatically.
 
-## Run Claude Code on a local model (experimental)
+## Where your data lives
 
-```bash
-.venv/bin/dore-claude --list                 # models in Ollama
-.venv/bin/dore-claude qwen2.5-coder --ctx 32768
-```
-
-Needs Ollama 0.14+. Much slower and weaker than Claude; see `reports/claude-local.md` for measurements.
-
-## Project layout
-
-Organised in layers; `src/` is the `dore` package itself.
-
-```
-src/                       # the `dore` package itself (pyproject: package-dir = {"dore" = "src"})
-├── __init__.py            # public API, loaded lazily (dore.MemoryStore, dore.Agent, dore.Config)
-├── config.py              # paths and settings
-├── memory/                # 1. fast memory, no model
-│   ├── types.py           #    Memory record, trust levels, what search may return
-│   ├── schema.py          #    SQLite tables + FTS5 keyword index
-│   ├── rules.py           #    duplicates, same fact with one detail changed, which note replaces which
-│   ├── store.py           #    MemoryStore: add, merge, replace, hybrid search, feedback, archive
-│   ├── embed.py           #    embedders (fastembed; HashEmbedder for tests)
-│   └── ingest.py          #    documents -> chunks
-├── learn/                 # 2. what to learn from a message, no model
-│   └── statements.py      #    split_statements, user_facts, scope_for, question/correction rules
-├── assistant/             # 3. local LLM chat: core.py (llama.cpp), agent.py, checkers.py
-├── integrations/          # 4. Claude Code & other agents: hooks, hookd, hookclient, bridge, server, claude_local
-├── apps/                  # 5. cli.py, web.py (+ web_page.html)
-└── eval/                  # bench.py, selftest.py
-```
-
-Also: `tests/` (pytest, no model needed), `plugin/` (Claude Code plugin, hooks only), `reports/` and `data/` (git-ignored).
-
-## Where learned data is stored
-
-Everything lives under `data/` (git-ignored; set `DORE_DATA=/some/path` to move it):
+Everything is under `data/` (git-ignored; set `DORE_DATA=/some/path` to move it):
 
 | Path | Contents |
 |---|---|
-| `data/memory.db` | **All learned knowledge**: facts, lessons, corrections, loaded documents, answers. One SQLite file with text, trust level, dates, scores and each item's vector. Back up this file to back up what dore has learned. |
-| `data/memory.faiss` | Search index. Rebuilt automatically from `memory.db` if missing, so it needs no backup. |
-| `data/models/` | Core model files (GGUF). Downloadable again. |
-| `data/cache/` | Embedding model cache. Downloadable again. |
+| `data/memory.db` | **Everything dore learned**: notes, rules, corrections, raw sentences, with trust level, dates, scores and vectors. One SQLite file: back it up to back up dore. |
+| `data/memory.faiss`, `data/memory.keys.faiss` | Search indexes, rebuilt from `memory.db` when missing. |
+| `data/cache/` | Embedding model cache (downloads again if deleted). |
 
-## Data and trust levels
+## Project layout
 
-Every memory has a trust level:
+`src/` is the `dore` package itself. Each layer imports only the ones above it.
 
-| Level | What gets it | Used in answers? |
-|---|---|---|
-| `verified` | Passed a real test; taught, stated or approved (`/good`) by you | ✅ |
-| `unverified` | Loaded documents, search results | ✅ (labelled as unverified) |
-| `unverified` answer | The model's own answers | ❌ until approved with `/good` |
-| `wrong` | Answers you corrected | ❌ never (kept for reference) |
-
-Nothing is ever hard-deleted; low-value items are archived (Phase 4).
-
-## Tests
-
-```bash
-.venv/bin/pytest                             # 19 unit tests, no model needed, ~2 s
-.venv/bin/python -m dore.eval.bench llm           # model speed (tokens/s, RAM)
-.venv/bin/python -m dore.eval.bench search        # vector search at 10k / 100k / 1M items
-.venv/bin/python -m dore.eval.bench embed         # embedding speed
-.venv/bin/python -m dore.eval.bench memory 100000 # memory store at scale (add, search, save, restart)
-.venv/bin/python -m dore.eval.bench remember      # auto-remember speed with the real embedder
+```text
+src/
+├── config.py          paths and settings
+├── memory/            1. fast memory, no model
+│   ├── store.py       MemoryStore: add, merge, replace, hybrid search, feedback, archive
+│   ├── rules.py       duplicates, one detail changed, which note replaces which
+│   ├── episodes.py    raw memory: every typed sentence that is not a note
+│   └── schema.py, types.py, embed.py, ingest.py
+├── learn/             2. what to learn from a message, no model
+│   ├── statements.py  shape and word rules, project vs general
+│   ├── grammar.py     spaCy grammar gate, topic keys
+│   └── recheck.py     judge old notes again with today's rules
+├── integrations/      3. coding agents
+│   ├── hooks.py       the prompt and SessionEnd hooks
+│   ├── hookd.py, hookclient.py   warm helper + standard-library client (`dore-hook`)
+│   ├── bridge.py      opencode and other editors (`dore-bridge`)
+│   ├── server.py      MCP server (`dore-server`)
+│   └── backfill.py    learn from past Claude Code sessions
+└── eval/              4. checks and benchmarks (no LLM): conversation, learning, stream, scale, bench, demo
 ```
 
-Save benchmark results in `reports/` (git-ignored, since they describe one machine).
+Also: `tests/` (pytest), `plugin/` (Claude Code plugin, hooks only; `plugin/opencode`), `reports/` and `data/`
+(git-ignored).
+
+## Learn more
+
+- [`AGENTS.md`](AGENTS.md): design rules and the roadmap (what is done, what is next).
+- [`.agents/rules/`](.agents/rules): how learning, the hooks and the checks work, with every measurement.
+- [`REFERENCES.md`](REFERENCES.md): dore isn't a new invention. It combines ideas from Voyager, Letta, SEAL,
+  Nested Learning, RAG, HippoRAG and the neuroscience of memory; this file says what comes from where.

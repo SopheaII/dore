@@ -57,7 +57,7 @@ class Bridge:
     def prompt(self, req: dict) -> str:
         state = _State(self.cfg.data_dir, str(req.get("session_id") or ""))
         text = on_prompt(self.store(), str(req.get("prompt") or ""), str(req.get("project") or ""), state)
-        self._learned.update(state.d.get("learned", []))
+        self._learned.update(state.d.get("learned", []) + state.d.get("handled", []))
         state.save()
         return text
 
@@ -68,7 +68,9 @@ class Bridge:
         if not msgs:
             return []
         store = self.store()
-        ids = [i for m in msgs for i in learn_message(store, m, project)]  # same rules as Claude Code
+        session_ids: set[int] = set()  # one batch is one session: a repeat inside it is not lasting
+        session = str(req.get("session_id") or "")
+        ids = [i for m in msgs for i in learn_message(store, m, project, session_ids=session_ids, session=session)]
         store.save(force=True)
         return ids
 

@@ -81,6 +81,8 @@ class MemoryStore:
         self.last_replaced: list[int] = []  # ids the last add_many(supersede=True) replaced
         self._last_index_write = time.monotonic()
         self.index = self._load_or_rebuild_index()
+        if not hasattr(self, "key_index"):  # rebuild_index (above) already built it
+            self.key_index = self._load_key_index()
         self._data_version = self.db.execute("PRAGMA data_version").fetchone()[0]
 
     def _migrate(self):
@@ -88,7 +90,8 @@ class MemoryStore:
         cols = {r[1] for r in self.db.execute("PRAGMA table_info(memories)")}
         if "project" not in cols:
             self.db.execute("ALTER TABLE memories ADD COLUMN project TEXT NOT NULL DEFAULT ''")
-        for col, typ in (("last_seen", "REAL"), ("replaced_by", "INTEGER"), ("valid_to", "REAL")):
+        for col, typ in (("last_seen", "REAL"), ("replaced_by", "INTEGER"), ("valid_to", "REAL"),
+                         ("key_vector", "BLOB")):
             if col not in cols:
                 self.db.execute(f"ALTER TABLE memories ADD COLUMN {col} {typ}")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_mem_project ON memories(project)")
@@ -102,6 +105,68 @@ class MemoryStore:
     # ---------- index ----------
     def _new_index(self):
         return faiss.IndexIDMap2(faiss.IndexFlatIP(self.dim))
+
+    def _build_key_index(self):
+        """Topic-key vectors of the searchable notes that have one (`add_many(keys=...)`)."""
+        idx = self._new_index()
+        cur = self.db.execute(f"SELECT id, key_vector FROM memories WHERE {SEARCHABLE_SQL} AND length(key_vector) > 0")
+        while rows := cur.fetchmany(50_000):
+            idx.add_with_ids(np.frombuffer(b"".join(r[1] for r in rows), dtype=np.float32).reshape(len(rows), self.dim),
+                             np.array([r[0] for r in rows], dtype=np.int64))
+        return idx
+
+    def _key_path(self) -> Path | None:
+        return self.index_path.with_name(self.index_path.stem + ".keys" + self.index_path.suffix) if self.index_path else None
+
+    def _load_key_index(self):
+        """The saved key index if it holds exactly the searchable notes with a key; else rebuilt from
+        SQLite (a cold hook at 100k notes would otherwise read ~150 MB of key vectors per prompt)."""
+        p = self._key_path()
+        if p and p.exists():
+            try:
+                idx = faiss.read_index(str(p))
+            except RuntimeError:
+                idx = None
+            want = np.array([r[0] for r in self.db.execute(
+                f"SELECT id FROM memories WHERE {SEARCHABLE_SQL} AND length(key_vector) > 0 ORDER BY id")], dtype=np.int64)
+            if idx is not None and idx.d == self.dim and np.array_equal(np.sort(faiss.vector_to_array(idx.id_map)), want):
+                return idx
+        self._dirty = True
+        return self._build_key_index()
+
+    def _key_add(self, ids: list[int]):
+        if not ids:
+            return
+        rows = self.db.execute(f"SELECT id, key_vector FROM memories WHERE length(key_vector) > 0 AND id IN "
+                               f"({','.join('?' * len(ids))})", [int(i) for i in ids]).fetchall()
+        if rows:
+            self.key_index.add_with_ids(
+                np.frombuffer(b"".join(r[1] for r in rows), dtype=np.float32).reshape(len(rows), self.dim),
+                np.array([r[0] for r in rows], dtype=np.int64))
+            self._dirty = True
+
+    def _key_vector(self, mem_id: int) -> np.ndarray | None:
+        blob = self.db.execute("SELECT key_vector FROM memories WHERE id=?", (mem_id,)).fetchone()[0]
+        return np.frombuffer(blob, dtype=np.float32) if blob else None  # b"": checked, no key
+
+    def missing_keys(self, limit: int = 500) -> list[tuple[int, str]]:
+        """Searchable statements saved before topic keys existed: (id, content)."""
+        with self._lock:
+            return self.db.execute(f"SELECT id, content FROM memories WHERE {SEARCHABLE_SQL} AND kind='statement' "
+                                   "AND key_vector IS NULL ORDER BY id LIMIT ?", (limit,)).fetchall()
+
+    def set_keys(self, pairs: list[tuple[int, str | None]]):
+        """Store topic keys for existing notes (None = checked, no key: stored as b"")."""
+        with self._lock:
+            have = [(i, k) for i, k in pairs if k]
+            vecs = self.embedder.embed([embed_text(k) for _, k in have]).astype(np.float32) if have else []
+            blobs = {i: v.tobytes() for (i, _), v in zip(have, vecs)}
+            self.db.executemany("UPDATE memories SET key_vector=? WHERE id=?",
+                                [(blobs.get(i, b""), i) for i, _ in pairs])
+            self.db.commit()
+            ids = [i for i in blobs if i not in set(faiss.vector_to_array(self.key_index.id_map).tolist())]
+            self._key_add([i for i in ids if self.db.execute(
+                f"SELECT 1 FROM memories WHERE id=? AND {SEARCHABLE_SQL}", (i,)).fetchone()])
 
     def _searchable_ids(self) -> np.ndarray:
         rows = self.db.execute(f"SELECT id FROM memories WHERE {SEARCHABLE_SQL} ORDER BY id").fetchall()
@@ -134,6 +199,7 @@ class MemoryStore:
         missing = np.setdiff1d(want, have)
         if extra.size:
             self.index.remove_ids(extra.astype(np.int64))
+            self.key_index.remove_ids(extra.astype(np.int64))
             self._dirty = True
         for start in range(0, missing.size, 5000):
             chunk = [int(i) for i in missing[start:start + 5000]]
@@ -156,6 +222,7 @@ class MemoryStore:
                     )
                 idx.add_with_ids(vecs.reshape(len(rows), self.dim), ids)
             self.index = idx
+            self.key_index = self._build_key_index()
             self._dirty = True
             return idx
 
@@ -169,16 +236,22 @@ class MemoryStore:
                 tmp = self.index_path.with_suffix(f".{os.getpid()}.tmp")  # unique per process
                 faiss.write_index(self.index, str(tmp))
                 tmp.replace(self.index_path)  # atomic: a crash never leaves a half-written index
+                ktmp = self.index_path.with_suffix(f".{os.getpid()}.keys.tmp")
+                faiss.write_index(self.key_index, str(ktmp))
+                ktmp.replace(self._key_path())
                 self._dirty = False
                 self._last_index_write = time.monotonic()
 
     def _index_add(self, vecs: np.ndarray, ids: list[int]):
         if ids:
             self.index.add_with_ids(np.ascontiguousarray(vecs, dtype=np.float32), np.array(ids, dtype=np.int64))
+            if getattr(self, "key_index", None) is not None:  # not yet built while the store opens
+                self._key_add(ids)
             self._dirty = True
 
     def _index_drop(self, mem_id: int):
         self.index.remove_ids(np.array([mem_id], dtype=np.int64))
+        self.key_index.remove_ids(np.array([mem_id], dtype=np.int64))
         self._dirty = True
 
     def _sync_index(self, before: Memory, after: Memory):
@@ -192,14 +265,17 @@ class MemoryStore:
 
     # ---------- write ----------
     def add(self, content: str, kind: str = "fact", source: str = "user", trust: str = "unverified",
-            protected: bool = False, project: str = "", supersede: bool = False) -> int:
+            protected: bool = False, project: str = "", supersede: bool = False, key: str | None = None,
+            created: float | None = None) -> int:
         """Store one memory; see `add_many`. Returns its id (or the id it merged into)."""
         return self.add_many([content], kind=kind, source=source, trust=trust, protected=protected,
-                             project=project, supersede=supersede)[0]
+                             project=project, supersede=supersede, keys=None if key is None else [key],
+                             created=created)[0]
 
     def add_many(self, contents: list[str], kind: str = "fact", source: str = "user",
                  trust: str = "unverified", protected: bool = False, project: str = "",
-                 supersede: bool = False) -> list[int]:
+                 supersede: bool = False, keys: list[str | None] | None = None,
+                 created: float | None = None) -> list[int]:
         """Store several memories with the same metadata in one batch.
 
         A near-duplicate of a searchable item (in the store or earlier in this batch)
@@ -207,12 +283,20 @@ class MemoryStore:
         `project` scopes the memory ("" = general, visible from every project).
         supersede: each new item replaces older notes it updates (`replaces`), in input
         order, so "I live in X. ... I live in Y." ends with Y. Ids in `last_replaced`.
+        keys: per note, an optional topic-key text (`learn.grammar.topic_key`) embedded as a second
+        vector; search scores a note by the closer of its two vectors. Used only for search.
+        created: when it was said, for a note learned later from raw memory (`memory.episodes`); default now.
+        An older date never replaces a newer note, and a newer note it would have updated replaces it.
         """
         if trust not in TRUST_LEVELS:
             raise ValueError(f"trust must be one of {TRUST_LEVELS}")
         texts = [c.strip() for c in contents]
         if any(not t for t in texts):
             raise ValueError("empty memory")
+        given = keys is not None  # keys checked by the caller: a None key is stored as b"" (no key)
+        keys = list(keys) if given else [None] * len(texts)
+        if len(keys) != len(texts):
+            raise ValueError("one key per memory")
         out: list[int] = []
         with self._lock:
             self._refresh()
@@ -220,7 +304,7 @@ class MemoryStore:
             first_new = (self.db.execute("SELECT MAX(id) FROM memories").fetchone()[0] or 0) + 1
             for start in range(0, len(texts), EMBED_BATCH):
                 out += self._add_batch(texts[start:start + EMBED_BATCH], kind, source, trust, protected,
-                                       project)
+                                       project, keys[start:start + EMBED_BATCH], given, created)
                 # Commit per batch: the next batch's embedding (slow) must not run while this
                 # process holds SQLite's write lock, or other sessions' writes time out.
                 self.db.commit()
@@ -245,6 +329,16 @@ class MemoryStore:
         done = []
         for sim, i in hits:
             m = rows.get(i)
+            # A note dated before newer notes (learned later from raw memory): a newer note that updates it
+            # wins ("newer wins"), the same rules the other way round.
+            if (m is not None and m.created > new.created and new.project in (m.project, "")
+                    and m.kind in ("fact", "statement", "correction") and not new.protected
+                    and (m.trust == "verified" or new.trust != "verified")
+                    and (replaces(new.content, m.content)
+                         or (sim >= CHANGE_SIMILARITY and changes(new.content, m.content)))):
+                self.db.execute("UPDATE memories SET replaced_by=?, valid_to=? WHERE id=?", (i, m.created, new_id))
+                self._sync_index(new, self.get(new_id))
+                return done
             # Only older notes; in one batch (same time) only earlier ones, or two notes saved
             # together replaced each other and both left search.
             # Same project, or an older general ("") note: "Samnang works on the infra team" was
@@ -263,8 +357,11 @@ class MemoryStore:
             done.append(i)
         return done
 
-    def _add_batch(self, texts, kind, source, trust, protected, project) -> list[int]:
+    def _add_batch(self, texts, kind, source, trust, protected, project, keys, keys_given=False,
+                   created: float | None = None) -> list[int]:
         vecs = self.embedder.embed([embed_text(t) for t in texts]).astype(np.float32)
+        kpos = [i for i, k in enumerate(keys) if k]
+        kvecs = dict(zip(kpos, self.embedder.embed([embed_text(keys[i]) for i in kpos]).astype(np.float32))) if kpos else {}
         indexed = searchable(kind, trust)
         thr = self.duplicate_threshold
         # Items that can't be searched (wrong, unapproved answers) are never merged:
@@ -283,7 +380,7 @@ class MemoryStore:
             q = f"SELECT id, content, project FROM memories WHERE id IN ({','.join('?' * len(set(cand)))})"
             cand_sigs = {i: _dup_key(c) for i, c, pr in self.db.execute(q, list(set(cand))) if pr == project}
 
-        now = time.time()
+        now = created or time.time()
         ids: list[int] = []
         new_rows: list[int] = []  # positions in this batch that were inserted and go in the index
         new_ids: list[int] = []
@@ -306,9 +403,10 @@ class MemoryStore:
                 ids.append(dup)
                 continue
             cur = self.db.execute(
-                "INSERT INTO memories (content, kind, source, trust, protected, created, vector, project) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (text, kind, source, trust, int(protected), now, vec.tobytes(), project),
+                "INSERT INTO memories (content, kind, source, trust, protected, created, vector, project, key_vector) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (text, kind, source, trust, int(protected), now, vec.tobytes(), project,
+                 kvecs[i].tobytes() if i in kvecs else (b"" if keys_given else None)),
             )
             ids.append(cur.lastrowid)
             if indexed:
@@ -324,8 +422,8 @@ class MemoryStore:
         cur_trust = self.db.execute("SELECT trust FROM memories WHERE id=?", (dup_id,)).fetchone()[0]
         new_trust = "verified" if "verified" in (cur_trust, trust) else cur_trust
         self.db.execute(
-            "UPDATE memories SET times_seen=times_seen+1, trust=?, protected=MAX(protected, ?), last_seen=? "
-            "WHERE id=?", (new_trust, int(protected), now, dup_id))
+            "UPDATE memories SET times_seen=times_seen+1, trust=?, protected=MAX(protected, ?), "
+            "last_seen=MAX(coalesce(last_seen, 0), ?) WHERE id=?", (new_trust, int(protected), now, dup_id))
         if trust == "verified":
             # Same words in the same order: only case/punctuation can differ; keep the newer form.
             self.db.execute("UPDATE memories SET content=? WHERE id=?", (text, dup_id))
@@ -442,6 +540,7 @@ class MemoryStore:
           duplicates don't fill all k places (1.0 disables).
         """
         vec = self.embedder.embed([query or " "]).astype(np.float32)
+        self.last_query_vector = vec[0]  # reused by raw-memory recall (`memory.episodes`): no second embedding
         terms = _query_terms(query) if keyword else []
         with self._lock:
             self._refresh()
@@ -465,6 +564,22 @@ class MemoryStore:
                 if enough or project is None or n >= min(self.index.ntotal, 2000):
                     break
                 n = min(self.index.ntotal, n * 4, 2000)
+            # Topic-key candidates ("answer, emoji: I prefer short answers..." for "How long should
+            # your answers be?"): a note scores by the closer of its two vectors.
+            if self.key_index.ntotal:
+                ksims, kids = self.key_index.search(vec, min(self.key_index.ntotal, n))
+                khits = {int(i): float(s) for s, i in zip(ksims[0], kids[0]) if i != -1}
+                rows = self.get_many([i for i in khits if i not in cands])
+                for mid, m in rows.items():
+                    if ok(m):
+                        m.similarity = float(self._vector(mid) @ vec[0])
+                        cands[mid] = m
+                for mid, m in cands.items():
+                    ks = khits.get(mid)
+                    if ks is None and (kv := self._key_vector(mid)) is not None:
+                        ks = float(kv @ vec[0])
+                    if ks is not None and ks > m.similarity:
+                        m.similarity = ks
             # Keyword candidates the meaning search missed.
             if terms:
                 # Filter in SQL, so wrong/archived rows and unapproved answers can't use up the 50 places.
@@ -479,7 +594,9 @@ class MemoryStore:
                 extra = self.get_many([i for i in kw_ids if i not in cands])
                 for mid, m in extra.items():
                     if ok(m):
-                        m.similarity = float(self._vector(mid) @ vec[0])
+                        kv = self._key_vector(mid)
+                        m.similarity = max(float(self._vector(mid) @ vec[0]),
+                                           float(kv @ vec[0]) if kv is not None else -1.0)
                         cands[mid] = m
             now = time.time()
             found = []

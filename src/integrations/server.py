@@ -18,8 +18,6 @@ import argparse
 import os
 import sqlite3
 import sys
-import threading
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -56,37 +54,6 @@ def correct_reply(done: list[int], refused: list[int], mid: int) -> str:
     return out
 
 
-class LocalModels:
-    """Loads one local GGUF model at a time (RAM), on first use."""
-
-    def __init__(self, paths: dict[str, Path], factory=None, n_ctx: int = 4096, n_threads: int = 4):
-        self.paths = paths
-        self.factory = factory or (lambda p: __import__("dore.assistant.core", fromlist=["Core"]).Core(
-            p, n_ctx=n_ctx, n_threads=n_threads))
-        self.name, self.core = None, None
-        self.lock = threading.Lock()
-
-    def ask(self, prompt: str, model: str, max_tokens: int) -> str:
-        if model not in self.paths:
-            raise ValueError(f"unknown model {model!r}; available: {', '.join(self.paths)}")
-        with self.lock:
-            if self.name != model:
-                self.core = None  # free the old model first
-                self.core = self.factory(self.paths[model])
-                self.name = model
-            return self.core.chat([{"role": "user", "content": prompt}], max_tokens=max_tokens)
-
-
-def find_models(models_dir: Path) -> dict[str, Path]:
-    """GGUF files in data/models, named by size: '1b', '3b' (or the file stem)."""
-    out = {}
-    for p in sorted(models_dir.glob("*.gguf")):
-        size = next((part.lower() for part in p.stem.replace("_", "-").split("-")
-                     if part[:-1].isdigit() and part[-1:].lower() == "b"), p.stem)
-        out.setdefault(size, p)
-    return out
-
-
 def current_project() -> str:
     """Name of the folder the client was started in ("" for the home folder)."""
     d = Path(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()).resolve()
@@ -116,7 +83,7 @@ def session_brief(db_path: Path, project: str) -> str:
     return "\n".join(lines)
 
 
-def build_server(store: MemoryStore, models: LocalModels | None = None, default_project: str = "") -> MCPServer:
+def build_server(store: MemoryStore, default_project: str = "") -> MCPServer:
     server = MCPServer("dore", instructions=INSTRUCTIONS)
     run = anyio.to_thread.run_sync  # embedding and model calls must not block other clients
 
@@ -176,15 +143,6 @@ def build_server(store: MemoryStore, models: LocalModels | None = None, default_
         done, refused, mid = await run(fix)
         return correct_reply(done, refused, mid)
 
-    if models and models.paths:
-        names = ", ".join(models.paths)
-
-        @server.tool(description=f"Run a small local model (free, private, slow). Small tasks only. model: {names}.")
-        async def ask_local(prompt: str, model: str = next(iter(models.paths)), max_tokens: int = 300) -> str:
-            t = time.perf_counter()
-            out = await run(models.ask, prompt, model, max(1, min(max_tokens, 2000)))
-            return f"{out.strip()}\n({model}, {time.perf_counter() - t:.0f}s)"
-
     return server
 
 
@@ -192,8 +150,6 @@ def main(argv: list[str] | None = None):
     p = argparse.ArgumentParser(prog="dore-server")
     p.add_argument("--host", default="127.0.0.1", help="keep 127.0.0.1 unless you know why (no auth)")
     p.add_argument("--port", type=int, default=8765)
-    p.add_argument("--local-models", action="store_true", help="offer the ask_local tool (off by default: every "
-                                                               "tool costs tokens on each request)")
     p.add_argument("--stdio", action="store_true", help="talk MCP over stdin/stdout (started by the client)")
     p.add_argument("--brief", action="store_true", help="print a short memory summary for this folder and exit "
                                                         "(for a session-start hook)")
@@ -207,12 +163,10 @@ def main(argv: list[str] | None = None):
     cfg = Config()
     embedder = FastEmbedder(cfg.embed_model, cache_dir=str(cfg.cache_dir / "fastembed"))
     store = MemoryStore(cfg.db_path, cfg.index_path, embedder, cfg.duplicate_threshold, cfg.index_save_interval)
-    models = None if not args.local_models else LocalModels(find_models(cfg.data_dir / "models"),
-                                                            n_ctx=cfg.n_ctx, n_threads=cfg.n_threads)
-    server = build_server(store, models, default_project=current_project() if args.stdio else "")
+    server = build_server(store, default_project=current_project() if args.stdio else "")
     where = "stdio" if args.stdio else f"http://{args.host}:{args.port}/mcp"
     # stderr only: in stdio mode stdout carries the MCP protocol.
-    print(f"dore memory server on {where} (models: {', '.join(models.paths) if models and models.paths else 'off'})",
+    print(f"dore memory server on {where}",
           file=sys.stderr, flush=True)
     try:
         if args.stdio:

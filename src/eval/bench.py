@@ -1,10 +1,8 @@
 """Benchmarks for the current machine (save results under reports/, git-ignored). Usage:
 
-    python -m dore.bench llm [model.gguf ...]
     python -m dore.bench search
     python -m dore.bench embed
     python -m dore.bench memory [items]     # store speed at scale (random vectors, no model)
-    python -m dore.bench remember           # auto-remember speed with the real embedder
     python -m dore.bench scale [projects]   # can recall still find the right fact among ~10k similar ones?
     python -m dore.bench stream [seed]      # simulated weeks of Claude Code use (dore.eval.stream)
 """
@@ -23,27 +21,6 @@ from dore.config import Config
 
 def rss_gb() -> float:
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20
-
-
-def bench_llm(paths: list[str]):
-    from llama_cpp import Llama
-
-    cfg = Config()
-    paths = paths or sorted(str(p) for p in (cfg.data_dir / "models").glob("*.gguf"))
-    prompt = [{"role": "user", "content": "Explain in about 150 words how synapses store memories."}]
-    for path in paths:
-        t = time.perf_counter()
-        llm = Llama(model_path=path, n_ctx=2048, n_threads=cfg.n_threads, verbose=False)
-        load_s = time.perf_counter() - t
-        llm.create_chat_completion(messages=[{"role": "user", "content": "hi"}], max_tokens=8)  # warm-up
-        t = time.perf_counter()
-        out = llm.create_chat_completion(messages=prompt, max_tokens=200, temperature=0.3)
-        dt = time.perf_counter() - t
-        u = out["usage"]
-        print(f"{Path(path).name}: load {load_s:.1f}s | prompt {u['prompt_tokens']} tok | "
-              f"gen {u['completion_tokens']} tok in {dt:.1f}s = {u['completion_tokens'] / dt:.1f} tok/s "
-              f"(incl. prompt) | peak RSS {rss_gb():.2f} GB")
-        del llm
 
 
 def bench_search(dim: int = 384):
@@ -140,39 +117,6 @@ def bench_memory(args: list[str]):
         print(f"database size: {db.stat().st_size / 2**20:.0f} MB | peak RSS {rss_gb():.2f} GB")
 
 
-def bench_remember():
-    import tempfile
-
-    from dore.assistant.agent import Agent
-    from dore.memory.embed import FastEmbedder
-    from dore.memory import MemoryStore
-
-    cfg = Config()
-    e = FastEmbedder(cfg.embed_model, cache_dir=str(cfg.cache_dir / "fastembed"))
-    e.embed(["warm up"])
-    words = "neurons connect through synapses whose strength changes with learning and sleep".split()
-    rng = np.random.default_rng(0)
-
-    def sentences(k):
-        return [" ".join(rng.choice(words, 10)).capitalize() + f" number {i}." for i in range(k)]
-
-    with tempfile.TemporaryDirectory(prefix="dore-bench-") as tmp:
-        store = MemoryStore(Path(tmp) / "m.db", None, e)
-        agent = Agent(core=None, memory=store)
-        for k in (3, 20):
-            sents = sentences(k)
-            dt_one, _ = _timed(lambda: [store.add(x) for x in sents])
-            sents = sentences(k)
-            dt_batch, _ = _timed(lambda: agent.remember_statements(" ".join(sents)))
-            print(f"chat message with {k} statements: one-by-one {dt_one:.2f}s | batched {dt_batch:.2f}s")
-        paste = " ".join(sentences(500))
-        dt, ids = _timed(lambda: agent.remember_statements(paste))
-        print(f"pasted text, 500 sentences ({len(paste):,} chars): {dt:.2f}s -> {len(ids)} document chunks")
-        dt, _ = _timed(lambda: store.search("how do synapses learn during sleep", k=5), 20)
-        print(f"search incl. embedding the question: {dt * 1000:.0f} ms")
-        store.close()
-
-
 SERVICES = ("billing checkout auth search gateway notifications inventory reports payments shipping catalog "
             "users sessions analytics email sms media uploads exports imports scheduler queue cache config "
             "audit admin pricing orders invoices refunds reviews ratings recommendations feeds webhooks "
@@ -267,7 +211,7 @@ def bench_scale(args: list[str]):
 
 if __name__ == "__main__":
     what = sys.argv[1] if len(sys.argv) > 1 else "search"
-    {"llm": lambda: bench_llm(sys.argv[2:]), "search": bench_search, "embed": bench_embed,
-     "memory": lambda: bench_memory(sys.argv[2:]), "remember": bench_remember,
+    {"search": bench_search, "embed": bench_embed,
+     "memory": lambda: bench_memory(sys.argv[2:]),
      "scale": lambda: bench_scale(sys.argv[2:]),
      "stream": lambda: __import__("dore.eval.stream", fromlist=["main"]).main(sys.argv[2:])}[what]()

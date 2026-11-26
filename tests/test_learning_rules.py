@@ -4,7 +4,7 @@ Sentences here are new (not from src/eval/cases.py), so these tests also check g
 import pytest
 
 from dore.learn.statements import message_facts, scope_for, structured_line
-from dore.memory.rules import embed_text, replaces
+from dore.memory.rules import changes, embed_text, replaces
 
 grammar = pytest.importorskip("dore.learn.grammar")
 needs_parser = pytest.mark.skipif(grammar.nlp() is None, reason="spaCy model not installed")
@@ -203,3 +203,100 @@ def test_rule_inside_long_request_verified_when_repeated_in_other_words(tmp_path
     on_prompt(s, "the refund screen has a bug with rounding on totals, fix it but do not touch the old code",
               "p", _State(tmp_path, "b"))
     assert [r[0] for r in s.db.execute(q, (RULE_SOURCE,))] == ["verified"]            # repeated: shown
+
+
+@needs_parser
+def test_verbless_my_phrase_is_about_the_user():
+    from dore.learn.statements import scope_for
+    for mine in ["my brother name Rithy", "my hometown kampot", "My boss name Sokha", "my car model Toyota Vios"]:
+        assert scope_for(mine, "p") == "", mine
+    for other in ["His name King", "the staging port 8443", "the repo name dore-api"]:
+        assert scope_for(other, "p") == "p", other
+
+
+@needs_parser
+def test_reports_and_questions_are_not_rules():
+    from dore.learn.grammar import rule_cores
+    from dore.learn.statements import requirement_text
+    # A report about a thing, an "or not" tag, a rule pointing only at "it": no hidden rule.
+    assert rule_cores("the export still not work on safari, it not download the file when i click") == []
+    assert rule_cores("please run the migration and check the table get the new column or not") == []
+    assert rule_cores("thanks, i dont want to change it, the old one was fine for the team") == []
+    # Real rules, any subject that says how things should be, stay.
+    assert rule_cores("we do not deploy on fridays because nobody is around to fix the release")
+    assert rule_cores("the bot should never send me minor alerts at night, only critical ones")
+    assert rule_cores("please never commit secrets to it, we had a leak last year") == ["Never commit secrets"]
+    assert rule_cores("never rename the columns, it breaks the reports for finance") == ["Never rename the columns"]
+    assert rule_cores("i dont want to touch it seem fine to me if you use something else") == []
+    # A long message that asks is not a standing instruction.
+    assert requirement_text("i was thinking about the menu so should we move it to the left side or not, "
+                            "i am not sure about the layout") == ""
+
+
+def test_repeat_inside_one_session_does_not_verify(tmp_path):
+    from dore.integrations.hooks import _State, on_prompt
+    from dore.memory import MemoryStore
+    from dore.memory.embed import HashEmbedder
+    s = MemoryStore(tmp_path / "m.db", None, HashEmbedder())
+    msg = ("i want the export to keep every column the user picked and not drop empty ones, and also "
+           "make sure the dates stay in the user's own timezone")
+    st = _State(tmp_path, "one")
+    on_prompt(s, msg, "p", st)
+    on_prompt(s, msg + ".", "p", st)                                     # pressing the same task
+    q = "SELECT DISTINCT trust FROM memories WHERE kind='requirement'"
+    assert [r[0] for r in s.db.execute(q)] == ["unverified"]
+    on_prompt(s, msg, "p", _State(tmp_path, "dup"))                     # same text again at once: one message twice
+    assert [r[0] for r in s.db.execute(q)] == ["unverified"]
+    on_prompt(s, msg + "!", "p", _State(tmp_path, "two"))                # another session: lasting
+    assert "verified" in [r[0] for r in s.db.execute(q)]
+
+
+@needs_parser
+def test_topic_key_names_the_topic_not_the_value():
+    # New sentences, any style: the label is the common nouns; names, numbers and unknown words are values.
+    assert grammar.topic_key("we keep the invoices in a bucket called acct-files").startswith("invoice, bucket:")
+    assert grammar.topic_key("My favourite shell is Fish.").startswith("shell:")
+    assert grammar.topic_key("i prefer tiny commits").startswith("commit:")
+    # No common noun and no place: no key (the note is searched by its own vector only).
+    assert grammar.topic_key("We ship with Bun.") is None
+    assert grammar.topic_key("Dara is on leave.") is not None  # "leave" is the topic
+    # A place value: the key is the "Where …?" question the note answers.
+    assert grammar.topic_key("i stay in Battambang").startswith("Where do I stay?")
+    assert grammar.topic_key("The backups are kept in Wasabi").startswith("Where are the backups kept?")
+    assert grammar.topic_key("my sister works at ACLEDA").startswith("Where does my sister work?")
+    for no_place in ["We use jest in this project", "The API runs on port 9000", "I fixed the bug in the parser"]:
+        assert not (grammar.topic_key(no_place) or "").startswith("Where"), no_place
+
+
+def test_update_that_names_the_old_value_it_left():
+    assert changes("Our CI runs on Travis.", "ci is github actions now, we moved off travis")
+    assert changes("I draw diagrams in Visio.", "i draw them in excalidraw now instead of visio")
+    assert changes("We bundle with Rollup.", "we switched from rollup to esbuild")
+    # Look-alikes that must keep both: another thing left the value, or another value was left.
+    assert not changes("Our docs are on Confluence.", "The weekly status report moved off Confluence to Notion.")
+    assert not changes("We log with Loki.", "We use Grafana instead of Kibana for dashboards.")
+    assert not changes("The cache is Redis.", "we moved the session store off Memcached")
+    assert not changes("Standup is on Monday.", "I moved the meeting from Monday.")  # "from X" alone
+
+
+def test_topic_key_vector_is_searched_kept_in_step_and_backfilled(tmp_path):
+    from dore.memory import MemoryStore
+    from dore.memory.embed import HashEmbedder
+    s = MemoryStore(tmp_path / "m.db", tmp_path / "m.faiss", HashEmbedder())
+    a = s.add("I prefer short answers.", kind="statement", trust="verified", key="answer length: short answers")
+    b = s.add("Logs live in /var/log/app.", kind="statement", trust="verified")  # no key given: backfill later
+    assert s.key_index.ntotal == 1
+    hit = s.search("answer length", k=1, min_similarity=0.0, keyword=False)[0]
+    assert hit.id == a and hit.similarity == pytest.approx(
+        float(s._key_vector(a) @ s.embedder.embed(["answer length"])[0]), abs=1e-5)
+    assert [i for i, _ in s.missing_keys()] == [b]
+    s.set_keys([(b, "log, path: Logs live in /var/log/app.")])
+    assert s.missing_keys() == [] and s.key_index.ntotal == 2
+    s.archive(a)
+    assert s.key_index.ntotal == 1  # archived notes leave both indexes
+    s.restore(a)
+    s.save(force=True)
+    s.close()
+    s2 = MemoryStore(tmp_path / "m.db", tmp_path / "m.faiss", HashEmbedder())
+    assert s2.key_index.ntotal == 2 and (tmp_path / "m.keys.faiss").exists()  # saved with the main index
+    s2.close()

@@ -157,6 +157,21 @@ DEV = [
     ("don't stop, keep going", "", None, "request"),
     ("please do not touch it", "", None, "request"),
     ("no need to run the tests this time", "", None, "request"),
+    # verbless "my X (name) Y": about the user, in every project (2026-11-26, own wording)
+    ("my brother name Rithy", "Rithy", "general", "non-native"),
+    ("my hometown kampot", "kampot", "general", "non-native"),
+    ("my car model Toyota Vios", "Vios", "general", "non-native"),
+    ("the staging port 8443", "8443", "project", "terse"),
+    ("the repo name dore-api", "dore-api", "project", "terse"),
+    # a preposition left at the end of a clause that describes a noun ("the city I live in"): a whole
+    # statement; the user in that clause makes it about the user (2026-11-26, own wording)
+    ("Rust is the language I enjoy working with.", "Rust", "general", "plain"),
+    ("security is the thing i care most about", "security", "general", "non-native"),
+    ("Kep is the town I grew up in.", "Kep", "general", "plain"),
+    ("the staging box is the one we test on", "staging", "project", "casual"),
+    ("I care about", "", None, "non-native"),
+    ("we should look into", "", None, "progress"),
+    ("this is what i was thinking about", "", None, "non-native"),
     # ambiguous: not scored
     ("Don't run the local model, just use Claude Code now.", None, None, "ambiguous"),
 ]
@@ -291,6 +306,14 @@ UPDATES = [
     ("The docs are hosted on Netlify.", "We moved the blog to Vercel.", False, "change word, other subject"),
     ("The search-api service runs on port 4100.", "The search-worker service now runs on port 4200.", False,
      "change word, other identifier"),
+    # the new note names the old value it left ("instead of X", "off X", "from X")
+    ("Our cloud provider is AWS.", "we are on GCP now, we moved off AWS", True, "names the old value"),
+    ("I take notes in Obsidian.", "i use logseq now instead of obsidian", True, "names the old value"),
+    ("We bundle with Webpack.", "we switched from webpack to vite", True, "names the old value"),
+    ("We run CI on Jenkins.", "The nightly backup job moved off Jenkins to cron.", False, "names it, other thing"),
+    ("Our staging server is on Hetzner.", "the build cache moved off Hetzner to R2", False, "names it, other thing"),
+    ("We use Postgres for analytics.", "We use Redis instead of Memcached for sessions.", False, "other old value"),
+    ("The retro is on Friday.", "I moved the planning call from Friday.", False, "'from X' without 'to'"),
 ]
 
 # Retrieval: (stored note, question asked later, style). The note should be shown for the question.
@@ -304,4 +327,7 @@ RETRIEVAL = [
      "rephrased"),
     ("Firmware is flashed over UART at 115200 baud.", "What baud rate should I use to flash?", "rephrased"),
     ("Tests are run with pytest, not unittest.", "How do I run the tests here?", "rephrased"),
+    # a place value: the question names no word of the note (2026-11-26, own wording)
+    ("i stay in Battambang", "where do i live", "place"),
+    ("Our team works from Kampot.", "where is the team based?", "place"),
 ]

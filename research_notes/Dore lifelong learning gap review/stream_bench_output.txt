@@ -1,0 +1,32 @@
+| Hook time per prompt, median / p95 | 9 / 21 ms |
+| Run time | 6.8 s |
+miss (week 1) shop: How long should your answers be? (want short)
+miss (week 1) shop: Which editor do I use? (want Neovim)
+miss (week 1) blog: How long should your answers be? (want short)
+miss (week 1) blog: Which editor do I use? (want Neovim)
+miss (week 1) api: How long should your answers be? (want short)
+miss (week 1) api: Which editor do I use? (want Neovim)
+miss (week 2) shop: How long should your answers be? (want short)
+miss (week 2) shop: Which editor do I use? (want Neovim)
+miss (week 2) blog: How long should your answers be? (want short)
+miss (week 2) blog: Which editor do I use? (want Neovim)
+miss (week 2) api: How long should your answers be? (want short)
+miss (week 2) api: Which editor do I use? (want Neovim)
+miss (week 3) shop: What port does the dev server use? (want 3001)
+miss (week 3) shop: How long should your answers be? (want short)
+miss (week 3) shop: Which editor do I use? (want Helix)
+miss (week 3) blog: How long should your answers be? (want short)
+miss (week 3) blog: Which editor do I use? (want Helix)
+miss (week 3) api: How long should your answers be? (want short)
+miss (week 3) api: Which editor do I use? (want Helix)
+miss (week 4) shop: What port does the dev server use? (want 3001)
+miss (week 4) shop: How long should your answers be? (want short)
+miss (week 4) shop: Which editor do I use? (want Helix)
+miss (week 4) blog: Where does this project deploy to? (want Cloudflare)
+miss (week 4) blog: How long should your answers be? (want short)
+miss (week 4) blog: Which editor do I use? (want Helix)
+miss (week 4) api: How long should your answers be? (want short)
+miss (week 4) api: Which editor do I use? (want Helix)
+junk: "hmm that's not right, the test still fails"
+
+[exited with code 0]

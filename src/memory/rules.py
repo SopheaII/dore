@@ -236,6 +236,28 @@ def _values(text: str) -> set[str]:
     return {w for w in _WORD.findall(text.lower()) if _value_like((w,), text)}
 
 
+# "instead of X", "off X", "from X", "rather than X": X is what was left (closed class of prepositions).
+_LEFT = r"(?:instead of|rather than|away from|off|from)\s+(?:the |our |my |using )?"
+# "from X" alone is often not a change of value ("I moved the meeting from Monday" is about the meeting,
+# not "Standup is on Monday"): only "from X to Y" counts (`_names_old_value`).
+
+
+def _names_old_value(old: str, new: str, topic_old: set) -> bool:
+    """`new` says it left the old note's value ("i use helix now instead of neovim" after "My editor is
+    Neovim"; "we moved off MongoDB" after "Our db are MongoDB"), with no other topic: at most one new
+    topic word (the new value or a synonym of the old topic), two when the old topic is named again.
+    "The nightly backup moved off Jenkins" names other things (nightly, backup): "We run CI on Jenkins"
+    is kept."""
+    for v in _values(old):
+        m = re.search(r"\b" + _LEFT + re.escape(v) + r"\b", new, re.I)
+        if m and m.group(0).lower().startswith("from") and not re.match(r"\s+to\b", new[m.end():], re.I):
+            m = None
+        if m:
+            topic_new = _topic(new[:m.start()] + new[m.end():])  # without "off <old value>"
+            return len(topic_new - topic_old) <= (2 if topic_old & topic_new else 1)
+    return False
+
+
 def changes(old: str, new: str) -> bool:
     """True when `new` says, in other words, that the value in `old` changed: it has a change word
     ("We switched the cache to Redis" after "We cache with Memcached"), covers every topic word of
@@ -245,6 +267,8 @@ def changes(old: str, new: str) -> bool:
     if not words & CHANGE_WORDS or words & MULTI_VALUE or set(_WORD.findall(old.lower())) & MULTI_VALUE:
         return False
     topic_old, topic_new = _topic(old), _topic(new)
+    if _names_old_value(old, new, topic_old):
+        return True
     # Most of the old topic must be named again ("dev server port" -> "dev port"; "API ... port" is not
     # covered by "dev server port").
     if not topic_old or len(topic_old & topic_new) / len(topic_old) < 0.6:

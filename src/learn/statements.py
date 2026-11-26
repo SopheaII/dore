@@ -1,9 +1,8 @@
 """What to learn from a user's message (rules only, no model).
 
-- `split_statements`: statements in a chat message (dore's own chat, `assistant.agent`);
 - `user_facts` / `message_facts`: durable facts in a coding prompt (Claude Code hooks, bridge);
 - `scope_for`: general fact (about the user or the organisation) or one project's fact;
-- question, correction ("No, ..."), request and feedback rules shared by both.
+- question, correction ("No, ...") and feedback rules.
 """
 
 from __future__ import annotations
@@ -23,13 +22,6 @@ MEMORY_LEAD_IN = re.compile(
 # Small talk is not a fact about the user.
 SMALL_TALK = re.compile(
     r"^(hi|hello|hey|thanks|thank you|thx|ok|okay|sorry|bye|goodbye|good (morning|afternoon|evening|night))\b", re.I)
-# Requests: an imperative verb followed by its object ("Summarize the text", "Help me ..."),
-# so nouns like "Help desk number is 555" still count as statements.
-REQUEST = re.compile(
-    r"^(summari[sz]e|translate|help|make|create|fix|find|check|calculate|compute|generate|draft|describe|"
-    r"compare|rewrite|continue|try|run|open|read|search|look|send|remind|let'?s)\s+"
-    r"(me|us|the|this|that|these|those|a|an|my|our|it|following|up|out|at|for)\b", re.I)
-# "please add this to memory", "remove file path please": commands to change memory, not facts.
 # Not facts: system text ("[Request interrupted by user]"), commands ("/teach ..."), markup, and
 # hypotheticals or play ("If I were rich...", "Pretend my name is Bob"), seen stored as verified
 # in a probe (2026-11-25).
@@ -37,17 +29,13 @@ NOT_A_FACT = re.compile(
     r"^[\[/<{]|^(?:if (?:i|we) (?:were|was|had|could)|imagine|pretend|suppose|what if|let'?s say|say that|"
     r"hypothetically|just kidding|jk|lol|haha)\b", re.I)
 # "No, it's a Honda" / "Actually, I live in Siem Reap" / "That's wrong: ...": a correction of the
-# last answer in plain words (the user doesn't type /correct). The rest of the message is the fix.
+# last notes in plain words. The rest of the message is the fix.
 CORRECTION_LEAD = re.compile(
     r"^(?:no+|nope|nah|wrong|incorrect|not quite|not really|actually|in fact|"
     r"that'?s (?:not (?:right|true|correct)|wrong|incorrect)|that is (?:not (?:right|true|correct)|wrong|incorrect)|"
     r"you'?re wrong|you are wrong)\b[\s,.!:;-]*", re.I)
-MEMORY_REQUEST = re.compile(
-    r"^(?:please\s+)?(?:add|save|store|remove|delete|forget|erase|clear|update|change|edit|ignore)\b"
-    r"|\bplease\s+(?:add|save|store|remove|delete|forget|erase|clear|update|change|edit|ignore)\b", re.I)
 
-# Feedback weights: what the user says outright counts more than what dore guesses from behaviour.
-EXPLICIT_FEEDBACK = 3   # /good, /bad
+# Feedback weight for what dore guesses from behaviour.
 IMPLICIT_FEEDBACK = 1   # asked again (-), moved on (+)
 # Asked the same thing again = the last answer didn't help. Measured (bge-small, 2026-11-25):
 # re-asks 0.79-0.97 ("Where do I live?" / "Which city do I live in?" 0.90); different questions
@@ -89,25 +77,6 @@ TAG_BLOCK = re.compile(r"<([a-z][\w-]*)\b[^>]*>.*?</\1\b[^>]*>", re.S | re.I)
 COMPACT_SUMMARY = re.compile(r"^This session is being continued from a previous conversation", re.I)
 # The user pasting dore's own output back ("From dore memory: ...") is not a new fact.
 ECHO = re.compile(r"\bdore memory\b|^#\d+ \(", re.I)
-
-
-def split_statements(text: str) -> list[str]:
-    """Sentences of `text` that state something (not questions, at least 3 words)."""
-    out = []
-    for sent in SENTENCE_SPLIT.split(text.strip()):
-        sent = re.sub(r"^[-*•]\s+", "", sent.strip())
-        lead = MEMORY_LEAD_IN.match(sent)
-        if lead:  # an explicit "remember that ...": keep the statement, even in question form
-            sent = sent[lead.end():].rstrip("?").strip()
-            sent = sent[:1].upper() + sent[1:]
-        elif (sent.endswith("?") or QUESTION_START.match(sent) or SMALL_TALK.match(sent)
-              or REQUEST.match(sent) or MEMORY_REQUEST.search(sent)):
-            continue
-        if NOT_A_FACT.match(sent):
-            continue
-        if len(sent.split()) >= 3:
-            out.append(sent)
-    return out
 
 
 def user_facts(text: str) -> list[str]:
@@ -201,6 +170,44 @@ def message_facts(msg: str) -> list[str]:
     return found if len(found) <= MAX_MSG_FACTS else []
 
 
+# A question by its first word (question words and auxiliaries: closed classes), with or without "?".
+ASKS_START = re.compile(r"^(what|who|whom|whose|where|when|why|how|which|is|are|am|do|does|did|can|could|will|"
+                        r"would|should|shall)\b", re.I)
+
+
+def _words(text: str) -> str:
+    return " ".join(re.findall(r"\w+", text.lower()))
+
+
+def episode_sentences(msg: str, facts: list[str]) -> list[str]:
+    """The user's own sentences in a typed message that no rule stored as a note, kept as raw memory
+    (`memory.episodes`) so that nothing the user says is lost. Same message checks as `message_facts`
+    (no pastes, logs, code or system text); questions are left out (they ask, they don't tell)."""
+    if len(msg) > MAX_MSG_CHARS:
+        return []
+    text = TAG_BLOCK.sub(" ", msg).strip()
+    if text.startswith("<") or COMPACT_SUMMARY.match(text):
+        return []
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if len(lines) >= 3 or (len(lines) == 2 and any(structured_line(ln) for ln in lines)):
+        return []
+    from dore.learn.grammar import asks
+    learned = [_words(f) for f in facts]
+    sents = SENTENCE_SPLIT.split("\n".join(ln for ln in lines if not structured_line(ln)))
+    if len(sents) > MAX_MSG_FACTS:  # a long paste on one line (an article): never judged sentence by sentence later
+        return []
+    out = []
+    for sent in sents:
+        sent = sent.strip()
+        if not 3 <= len(sent.split()) <= 60 or sent.endswith("?") or ASKS_START.match(sent) \
+                or NOT_A_FACT.match(sent) or ECHO.search(sent) or asks(sent):
+            continue
+        if any(f and f in _words(sent) for f in learned):  # it already taught a note
+            continue
+        out.append(sent)
+    return out
+
+
 # ---- Requirements: long instructions keep their gist (low trust; stronger when said again) ----
 # A long request that sets a constraint ("summarize, but not too short, and don't invent sentences") is
 # lasting knowledge even though it is not a short fact. Decided by structure: length, not a question,
@@ -225,7 +232,9 @@ def requirement_text(msg: str) -> str:
     if len(words) < REQ_MIN_WORDS or text.rstrip().endswith("?") or REQ_QUESTION.match(text.strip()):
         return ""
     parts = [p.strip(" ,;") for p in re.split(r"(?<=[.!?])\s+", text) if p.strip()]
-    keep = [p for p in parts if CONSTRAINT.search(p) and not p.rstrip().endswith("?") and len(p.split()) >= 4]
+    from dore.learn.grammar import asks
+    keep = [p for p in parts if CONSTRAINT.search(p) and not p.rstrip().endswith("?") and len(p.split()) >= 4
+            and not asks(p)]
     if not keep:
         return ""
     gist = " ".join(dict.fromkeys(keep))

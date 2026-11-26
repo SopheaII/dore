@@ -329,7 +329,12 @@ def complete(text: str) -> bool:
     if not words:
         return False
     last = words[-1]
-    if last.pos_ in DANGLING and last.dep_ not in ("prt", "advmod"):  # "turn it off", "get it back" are fine
+    # "turn it off", "get it back" are fine; so is a preposition left at the end of a clause that
+    # describes a noun ("the city I live in", "the thing I care most about"): its object is that noun.
+    # On the main verb it is a cut-off piece ("I care about", "we should look into").
+    if (last.pos_ in DANGLING and last.dep_ not in ("prt", "advmod")
+            and not ((last.pos_ == "ADP" or last.dep_ == "prep")  # "to" with no full stop is tagged PART
+                     and any(a.dep_ == "relcl" for a in last.ancestors))):
         return False
     if last.lower_ in NOMINATIVE:  # "I/we/he..." can't end a statement, whatever the parser says
         return False
@@ -347,17 +352,60 @@ def about_user(sentence: str) -> bool | None:
         return None
     doc = parser(sentence)
     head = next(doc.sents).root
+    if not any(t.pos_ in ("VERB", "AUX") for t in doc):
+        # No verb ("my dog name Adam", "my hometown kampot"): the parser picks a different head
+        # each time, so look at the noun phrase itself: the user's when it is "my ...".
+        return any(t.lower_ == "my" and t.dep_ == "poss" for t in doc)
     subj = [c for c in head.children if c.dep_ in SUBJ]
     if not subj:
         return bool({t.lower_ for t in doc} & STANDING) and head.tag_ in ("VB", "VBP")
     s = subj[0]
     mine = s.lower_ in ("i", "me") or any(k.lower_ == "my" and k.dep_ == "poss" for k in s.children)
-    if not mine:  # "English is my second language": the subject's complement is the user's
-        return any(c.dep_ == "attr" and any(k.lower_ == "my" for k in c.children) for c in head.children)
-    if s.lower_ == "i" and head.tag_ == "VBD" and any(
-            c.dep_ == "dobj" and not any(k.lower_ == "my" for k in c.children) for c in head.children):
+    if not mine:
+        # "English is my second language": the subject's complement is the user's. "Security is the
+        # thing I care most about" / "The town I grew up in is Kep": a clause describing the subject or
+        # its complement says what the user does or likes.
+        nouns = [s] + [c for c in head.children if c.dep_ == "attr"]
+        return any(c.dep_ == "attr" and any(k.lower_ == "my" for k in c.children) for c in head.children) or any(
+            r.dep_ == "relcl" and any(k.dep_ in SUBJ and k.lower_ in ("i", "me") for k in r.subtree)
+            and not _past_action(r)  # "Render is the host I deployed the blog to": the project's
+            for n in nouns for r in n.children)
+    if s.lower_ == "i" and _past_action(head):
         return False
     return True
+
+
+def _past_action(verb) -> bool:
+    """A past action on a thing ("I set the dev server to port 3001"): about the project, not the user."""
+    return verb.tag_ == "VBD" and any(c.dep_ == "dobj" and not any(k.lower_ == "my" for k in c.children)
+                                      for c in verb.children)
+
+
+def asks(sentence: str) -> bool:
+    """A question anywhere in the sentence, with or without "?": an auxiliary or modal right before
+    its own subject ("... should i add X or not", "so can we keep it"), or an "or not" tag."""
+    if TAG_QUESTION.search(sentence):
+        return True
+    parser = nlp()
+    if parser is None:
+        return False
+    doc = parser(sentence)
+    return any(a.pos_ == "AUX" and a.i + 1 < len(doc) and doc[a.i + 1].dep_ in SUBJ
+               and doc[a.i + 1].head == a.head and a.head.i > a.i for a in doc)
+
+
+def tells(sentence: str) -> bool:
+    """The sentence tells something rather than asks for something: its main verb has a subject, it
+    has no politeness marker (a request, misspelt too) and asks nothing. Used for raw memory, which
+    keeps every sentence: on the real replay, recalled requests ("ok please build release for me")
+    were nearly all noise. False without a parser."""
+    parser = nlp()
+    if parser is None:
+        return False
+    doc = parser(sentence)
+    root = next(doc.sents).root
+    return (any(c.dep_ in SUBJ for c in root.children) and not any(POLITE.match(t.text) for t in doc)
+            and not asks(sentence))
 
 
 def has_detail(text: str) -> bool:
@@ -393,6 +441,14 @@ def rule_cores(text: str) -> list[str]:
             # work (a complaint about now), they don't set a rule.
             if h.pos_ != "VERB" or h.lemma_.lower() in PERCEPTION | {"be"}:
                 continue
+            if t.i > 0 and sent.doc[t.i - 1].lower_ == "or":  # "check it works or not": a question tag
+                continue
+            # "it not save on X", "the job does not run": a report about a thing, not a rule, unless
+            # it says how things should be ("the bot should never send ...").
+            subj = [c for c in h.children if c.dep_ in SUBJ]
+            if subj and subj[0].lower_ not in FIRST | {"you"} and not any(
+                    c.tag_ == "MD" for c in h.children):
+                continue
             if _mental(h) and not any(c.dep_ in ("dobj", "xcomp", "ccomp") for c in h.children):
                 continue
             toks, stack = set(), [h]
@@ -406,8 +462,16 @@ def rule_cores(text: str) -> list[str]:
                     toks |= {y for y in k.subtree if y.dep_ not in LEAVE_OUT - {"conj", "cc"}} | {
                         c for c in h.children if c.dep_ == "cc"}
             words = [x for x in sorted(toks, key=lambda x: x.i) if not x.is_punct and not POLITE.match(x.text)]
+            dropped = []
             while words and words[-1].pos_ in DANGLING | {"PRON", "CCONJ"} and words[-1].dep_ not in ("prt", "neg"):
-                words.pop()
+                dropped.append(words.pop())
+            # "don't want to touch it": the action's own object is only "it": points at now. Not "never
+            # commit secrets to it" (the rule has its object; "to it" is extra).
+            last = words[-1] if words else None
+            after = sent.doc[last.i + 1] if last is not None and last.i + 1 < len(sent.doc) else None
+            if any(x.lower_ in PRONOUN_OBJ and x.i > 0 and sent.doc[x.i - 1].pos_ != "ADP" for x in dropped) or (
+                    last is not None and last.pos_ == "VERB" and after is not None and after.lower_ in PRONOUN_OBJ):
+                continue
             content = [x for x in words if x.pos_ in ("NOUN", "PROPN", "VERB", "ADJ") and not x.is_stop
                        and x.lemma_.lower() not in LIGHT]
             if len(content) >= 2 and len(words) <= 12:
@@ -415,3 +479,52 @@ def rule_cores(text: str) -> list[str]:
                 core = re.sub(r"\s+(n't|'s|'re|'m|'ll|'ve|'d)\b", r"\1", core)
                 out.append(core[:1].upper() + core[1:])
     return list(dict.fromkeys(out))
+
+
+def topic_key(text: str) -> str | None:
+    """A note's topic label for search: its common nouns (not the value: names, numbers and words the
+    vocabulary doesn't know are left out), put before the note ("answer, emoji: I prefer short answers
+    without emojis."). A question names the topic, not the value, and the plain note scored below the
+    hook's bar ("How long should your answers be?" 0.61 -> 0.74). Grammar only (part of speech), no
+    word lists. None when the note has no such noun or no parser is installed."""
+    parser = nlp()
+    if parser is None:
+        return None
+    # Pieces of an identifier ("acct-files" -> "acct", "files") are part of a value, not the topic.
+    ident = [m.span() for m in re.finditer(r"\S*\w[./:_@-]\w\S*", text)]
+    doc = parser(text)
+    nouns = list(dict.fromkeys(t.lemma_.lower() for t in doc if t.pos_ == "NOUN" and not _detail([t])
+                               and not (t.text[0].isupper() and not t.is_sent_start)  # "... is Fish": a name
+                               and not any(a <= t.idx < b for a, b in ident)))
+    where = _where_question(doc)
+    if not (nouns or where):
+        return None
+    return f"{where + ' ' if where else ''}{', '.join(nouns) + ': ' if nouns else ''}{text}"
+
+
+PLACE_PREP = {"in", "at", "to", "from", "near"}  # closed class: prepositions that name where
+
+
+def _where_question(doc) -> str | None:
+    """The "Where …?" question a fact answers when its value is a place: a verb with a subject and
+    "in/at/to/from/near" + a concrete name ("I live in Siem Reap" -> "Where do I live?", "We deploy to
+    Netlify" -> "Where do we deploy?"). "Where do I live?" scored 0.63 against the plain note, below
+    the hook's bar; with this key 0.72, while unrelated "where …" questions stay at 0.49-0.53."""
+    for p in doc:
+        v = p.head
+        if p.dep_ != "prep" or p.lower_ not in PLACE_PREP or v.pos_ not in ("VERB", "AUX") or p.i < v.i:
+            continue
+        obj = [c for c in p.children if c.dep_ == "pobj"]
+        subj = [c for c in v.children if c.dep_ in SUBJ]
+        if not obj or not subj or not _detail(list(obj[0].subtree)):
+            continue
+        s = subj[0]
+        who = " ".join("I" if x.lower_ == "i" else x.lower_ for x in s.subtree)
+        if v.lemma_ == "be":
+            return f"Where {v.lower_} {who}?"
+        aux = [c for c in v.children if c.dep_ in ("aux", "auxpass") and c.lemma_ in ("be", "have")]
+        if aux:  # "The servers are hosted in Frankfurt" -> "Where are the servers hosted?"
+            return f"Where {aux[0].lower_} {who} {v.lower_}?"
+        do = "do" if s.lower_ in ("i", "we", "you", "they") or s.tag_ in ("NNS", "NNPS") else "does"
+        return f"Where {do} {who} {v.lemma_}?"
+    return None

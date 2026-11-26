@@ -1,10 +1,9 @@
 [project]
 name = "dore"
 version = "0.1.0"
-description = "A local AI that keeps learning from everyday use"
+description = "Local long-term memory for Claude Code and other coding agents, learned from everyday use"
 requires-python = ">=3.11"
 dependencies = [
-    "llama-cpp-python",
     "fastembed",
     "faiss-cpu",
     "numpy",
@@ -18,10 +17,7 @@ dependencies = [
 dev = ["pytest"]
 
 [project.scripts]
-dore = "dore.apps.cli:main"
-dore-web = "dore.apps.web:main"
 dore-server = "dore.integrations.server:main"
-dore-claude = "dore.integrations.claude_local:main"
 dore-hook = "dore.integrations.hookclient:main"
 dore-bridge = "dore.integrations.bridge:main"
 
@@ -32,10 +28,7 @@ build-backend = "setuptools.build_meta"
 # src/ is the `dore` package itself (no src/dore/ folder), like a Rust crate's src/.
 [tool.setuptools]
 package-dir = {"dore" = "src"}
-packages = ["dore", "dore.memory", "dore.learn", "dore.assistant", "dore.integrations", "dore.apps", "dore.eval"]
-
-[tool.setuptools.package-data]
-"dore.apps" = ["web_page.html"]
+packages = ["dore", "dore.memory", "dore.learn", "dore.integrations", "dore.eval"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

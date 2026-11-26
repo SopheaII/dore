@@ -12,7 +12,7 @@ The plugin's value is memory at almost no Claude tokens. Measured costs:
   unless a measured gain beats their cost on every request. Learning stays in the hook.
 - **Per prompt**: notes only on a strong match; `MAX_TOTAL_CHARS` still enforced.
 - **Latency**: no new heavy imports on the hook path (`integrations/hooks.py`, `learn/`,
-  `memory/`); `integrations/` never imports `assistant/` at module level. Warm helper ~0.07 s.
+  `memory/`). Warm helper ~0.07 s.
   The spaCy parser (`learn/grammar.py`) loads lazily and is preloaded by `hookd`; cold prompt ~1.5 s.
 - **CPU**: no Python loops over all notes, no extra embedding calls per prompt.
 - **Measure**: `python -m dore.eval.conversation` prints tokens per question (baseline

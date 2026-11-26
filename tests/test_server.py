@@ -3,16 +3,16 @@ from mcp.client.client import Client
 
 from dore.memory.embed import HashEmbedder
 from dore.memory import MemoryStore
-from dore.integrations.server import LocalModels, build_server, find_models
+from dore.integrations.server import build_server
 
 
 def text(result):
     return "".join(c.text for c in result.content)
 
 
-def run(store, fn, models=None):
+def run(store, fn):
     async def main():
-        server = build_server(store, models)
+        server = build_server(store)
         return await fn(server)
     return anyio.run(main)
 
@@ -88,33 +88,6 @@ def test_two_clients_at_the_same_time_share_memory(tmp_path):
     res = run(store, fn)
     assert "beta learned item3" in res["alpha"] and "alpha learned item3" in res["beta"]
     assert store.stats()["total"] == 20
-
-
-def test_ask_local_uses_chosen_model(tmp_path):
-    loaded = []
-
-    class Fake:
-        def __init__(self, p):
-            loaded.append(p.name)
-
-        def chat(self, messages, max_tokens=300):
-            return f"hi from {loaded[-1]}"
-    models = LocalModels({"1b": tmp_path / "a-1B.gguf", "3b": tmp_path / "b-3B.gguf"}, factory=Fake)
-
-    async def fn(server):
-        async with Client(server) as c:
-            one = text(await c.call_tool("ask_local", {"prompt": "hi", "model": "1b"}))
-            three = text(await c.call_tool("ask_local", {"prompt": "hi", "model": "3b"}))
-            bad = await c.call_tool("ask_local", {"prompt": "hi", "model": "70b"})
-            return one, three, bad
-    one, three, bad = run(make_store(tmp_path), fn, models)
-    assert "a-1B.gguf" in one and "b-3B.gguf" in three and bad.is_error
-
-
-def test_find_models_names_by_size(tmp_path):
-    for n in ("Llama-3.2-1B-Instruct-Q4_K_M.gguf", "Llama-3.2-3B-Instruct-Q4_K_M.gguf"):
-        (tmp_path / n).write_bytes(b"")
-    assert sorted(find_models(tmp_path)) == ["1b", "3b"]
 
 
 def test_default_project_and_personal_facts(tmp_path):

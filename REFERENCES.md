@@ -2,7 +2,7 @@
 
 dore is **not a new invention**. It combines ideas from existing research and projects into one small system that runs on a CPU laptop. This file credits where each idea comes from.
 
-What we could not find in prior work is the specific combination: all five parts together, with nightly or idle-time training of the core (not only memory notes), exams with automatic rollback, designed for a normal laptop, and measured over months. Research moves fast, so something close may exist or appear.
+Model training was dropped (see `CLAUDE.md`): rows below about training (replay of old data, LoRA, PEFT) are kept as background only, not as parts of dore. What we could not find in prior work is the specific combination: a memory that learns from everyday use at ~0 LLM tokens, with trust levels, never-delete updates and project scope, designed for a normal laptop, and measured over months. Research moves fast, so something close may exist or appear.
 
 Status column: ✅ = confirmed published work; ⚠️ = reported to us but not independently verified yet; check the source before citing.
 
@@ -21,12 +21,14 @@ Status column: ✅ = confirmed published work; ⚠️ = reported to us but not i
 | LoRA add-on, not full training | LoRA learns less but forgets less | Hu et al. 2021; Biderman et al. 2024 |
 | Never train on unchecked self-written text | Model collapse | Shumailov et al. 2024 |
 | Forgetting, merging, scores | Active, useful forgetting; memory growth slows agents | Neuroscience of forgetting; Anthropic's long-running agent observations |
+| Raw memory + consolidation (`memory.episodes`) | Keep a quick trace of everything, decide later what lasts; add everything, sort it out later | Hippocampal trace + selective consolidation (Kumaran et al. 2016; Rasch & Born 2013); Mem0 2026 ADD-only |
 
 ## AI research and projects
 
 | Work | What dore takes from it | Status |
 |---|---|---|
 | **Voyager**: Wang et al., 2023, "An Open-Ended Embodied Agent with Large Language Models" ([arXiv:2305.16291](https://arxiv.org/abs/2305.16291)) | Ever-growing library of tested skills; save code only after it succeeds; retry with error feedback | ✅ |
+| **Mem0 2026**, ADD-only extraction ([Mem0 blog, "AI memory benchmarks in 2026"](https://mem0.ai/blog/ai-memory-benchmarks-in-2026)) | Memories accumulate instead of being overwritten or deleted at write time; dore keeps every typed sentence as raw memory and lets idle-time consolidation decide (no LLM) | ✅ (blog post, seen in research notes 2026-11-25) |
 | **Letta**, sleep-time compute: Lin et al., 2025 ([arXiv:2504.13171](https://arxiv.org/abs/2504.13171)) | Agents keep working during idle time to reorganise memory | ✅ |
 | **SEAL**: Zweiger et al., 2025, "Self-Adapting Language Models" (MIT, [arXiv:2506.10943](https://arxiv.org/abs/2506.10943)) | Model writes its own fine-tuning data; keep updates that improve downstream performance | ✅ |
 | **Nested Learning / Hope**: Google Research, Nov 2025; builds on **Titans** (Behrouz et al., 2025, [arXiv:2501.00663](https://arxiv.org/abs/2501.00663)) | Different parts learn at different speeds; surprise decides what to remember | ✅ |
@@ -54,6 +56,8 @@ Status column: ✅ = confirmed published work; ⚠️ = reported to us but not i
 | Complementary learning systems: fast hippocampus, slow neocortex | McClelland, McNaughton & O'Reilly, 1995, *Psychological Review* | Fast memory + stable core |
 | Hippocampal indexing theory | Teyler & DiScenna, 1986 | Memory stores pointers/notes the core uses at answer time |
 | Sleep replay and active systems consolidation | Buzsáki; Diekelmann & Born | Idle-time consolidation with replay |
+| Fast specific trace first, selective consolidation later | Kumaran, Hassabis & McClelland, 2016, *Trends Cogn Sci* 20:512 ([PDF](https://web.stanford.edu/~jlmcc/papers/KumaranHassabisMcClelland16FinalMS.pdf)); Rasch & Born, 2013 ([PMC3768102](https://pmc.ncbi.nlm.nih.gov/articles/3768102)) | Raw memory of every typed sentence; the warm helper consolidates it while idle and judges it again when the rules change |
+| Exemplar theory: categorise by similarity to stored examples | ⚠️ Medin & Schaffer, 1978; Nosofsky, 1986 (not opened) | Tried 2026-11-26 as a "lasting fact?" judge on bge-small vectors: rescued 0 facts, added junk; not used |
 | Synaptic homeostasis hypothesis | Tononi & Cirelli | Score decay and pruning of low-value memories |
 | Active, useful forgetting | Ryan & Frankland; Davis & Zhong (Rac1, dopamine) | Archive and merge instead of keeping every detail |
 | Engrams and memory allocation | Tonegawa; Josselyn & Frankland | One fact per memory record, retrieved by similarity |
@@ -65,10 +69,8 @@ Background reading used while designing dore: "How the Human Brain Works: From G
 
 | Tool | Role | Licence |
 |---|---|---|
-| [llama.cpp](https://github.com/ggml-org/llama.cpp) / [llama-cpp-python](https://github.com/abetlen/llama-cpp-python) | Runs the core model on CPU | MIT |
-| [Llama 3.2](https://www.llama.com/) (Meta), GGUF by [bartowski](https://huggingface.co/bartowski) | Core model | Llama 3.2 Community License |
 | [FAISS](https://github.com/facebookresearch/faiss) (Meta) | Vector search | MIT |
 | [fastembed](https://github.com/qdrant/fastembed) (Qdrant) + [bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) (BAAI) | Text embeddings | Apache-2.0 / MIT |
 | SQLite | Memory records | Public domain |
 | [spaCy](https://spacy.io/) + [en_core_web_md](https://spacy.io/models/en#en_core_web_md) (Explosion) | Sentence grammar: what is a lasting fact (`learn/grammar.py`) | MIT |
-| PyTorch + PEFT *(Phase 5)* | LoRA training | BSD / Apache-2.0 |
+| PyTorch + PEFT *(dropped: no model training)* | LoRA training | BSD / Apache-2.0 |
