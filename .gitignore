@@ -33,3 +33,4 @@ node_modules/
 
 # Claude Code personal settings
 .claude/settings.local.json
+/research_notes
