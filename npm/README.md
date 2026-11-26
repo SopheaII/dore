@@ -44,7 +44,7 @@ dore manages the memory itself, outside the AI:
 | What Claude receives | The whole memory, or what the AI searched for | Only the notes that match your message (usually none), plus your standing rules once per session |
 | When a fact changes | Old and new notes may both stay | The old note is replaced |
 | When notes disagree | No rule | What you said wins over what the AI guessed |
-| Where it runs | Sometimes a cloud service | On your computer (with Haiku learning on, the sentences you type also go to Haiku once a day) |
+| Where it runs | Sometimes a cloud service | On your computer (with Haiku learning on, the sentences you type also go to Haiku, after each session) |
 
 Learning adds a few ms to each message. By default it costs 0 Claude tokens (local word rules). If you say yes at
 install, dore learns better with Claude Haiku instead: after each session, in the background, one small batch
@@ -162,7 +162,7 @@ Without Haiku, learning runs locally with small models: no Claude tokens, and yo
 
 - **Stays on your machine:** every note, everything you type, your projects and the search model's work.
   dore has no account, no server and no telemetry.
-- **With Haiku learning on** (you choose at install; change it in `~/.dore-memory/data/learner`): about once a day,
+- **With Haiku learning on** (you choose at install; change it in `~/.dore-memory/data/learner`): after each session,
   the sentences you typed since the last time go to Claude Haiku through your own `claude` login, like any message
   you send Claude. Your notes stay on your machine.
 - **Otherwise the only thing dore sends:** once a day, one request for the public page
