@@ -149,7 +149,7 @@ def test_what_claude_code_logs_between_two_messages_does_not_cut_the_answer(tmp_
 def test_being_found_by_a_search_is_not_being_used(tmp_path):
     from dore.integrations.hooks import rules_in_mind
     s = make(tmp_path)
-    i = rule(s, "never deploy on fridays", said=2, days_ago=120)
+    i = rule(s, "never deploy on fridays", said=2, days_ago=200)
     assert i not in [m.id for m in rules_in_mind(s, "p", set())]
     s.search("never deploy on fridays", k=3, project="p")  # what dore's MCP tool does
     assert i not in [m.id for m in rules_in_mind(s, "p", set())]
