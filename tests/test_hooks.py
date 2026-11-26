@@ -75,8 +75,9 @@ def make(tmp_path):
 
 
 def test_rules_once_then_only_strong_matches_never_repeated(tmp_path):
+    from dore.integrations.hooks import mark_instructions
     s = make(tmp_path)
-    s.add("keep the code python 3.9 compatible", trust="verified", project="shop")
+    mark_instructions(s, [s.add("always keep the code python 3.9 compatible", trust="verified", project="shop")])
     s.add("images live in bucket shop-assets on cloudflare r2", trust="verified", project="shop")
     s.add("the blog uses hugo", trust="verified", project="blog")
     st = _State(tmp_path, "sess1")
@@ -124,12 +125,20 @@ def test_session_end_skips_pastes_and_system_text(tmp_path):
 
 
 def test_personal_wish_is_not_a_rule_but_personal_preference_is(tmp_path):
+    from dore.integrations.hooks import mark_instructions
     s = make(tmp_path)
-    s.add("I don't want to install any app on my phone", trust="verified")
-    s.add("I always prefer short answers", trust="verified")
-    s.add("keep the code python 3.9 compatible", trust="verified", project="shop")
+    for _ in range(30):  # Claude's replies talk about the work: answers, code, tests
+        s.count_reply({"short", "answer", "answers", "code", "tests", "python"})
+    ids = [s.add("I don't want to install any app on my phone", trust="verified"),
+           s.add("I always prefer short answers", trust="verified"),
+           s.add("always keep the code python 3.9 compatible", trust="verified", project="shop"),
+           s.add("keep it on python 3.9", trust="verified", project="shop")]
+    mark_instructions(s, ids)
     first = prompt_context(s, "rename a variable", "shop", _State(tmp_path, "s2"))
-    assert "install any app" not in first and "short answers" in first and "python 3.9" in first
+    # a wish not about the work stays out; a preference about the work and a standing command start the session;
+    # a plain command is not a standing rule (it is found when a message matches it)
+    assert "install any app" not in first and "short answers" in first and "always keep" in first
+    assert "keep it on python" not in first
 
 
 @pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="Unix socket; Windows uses the 127.0.0.1 test below")
@@ -159,8 +168,9 @@ def _warm_helper_check(tmp_path):
     assert ask_helper(sock, "prompt", {}) is None                      # no helper: caller runs inline
 
     def factory(c):
+        from dore.integrations.hooks import mark_instructions
         st = MemoryStore(tmp_path / "m.db", None, HashEmbedder())
-        st.add("keep the code python 3.9 compatible", trust="verified", project="shop")
+        mark_instructions(st, [st.add("always keep the code python 3.9 compatible", trust="verified", project="shop")])
         return st
     t = threading.Thread(target=serve, args=(cfg, 1.0, factory), daemon=True)
     t.start()
@@ -192,7 +202,8 @@ def test_helper_over_local_tcp_needs_the_token(tmp_path, monkeypatch):
 
     def factory(c):
         st = MemoryStore(tmp_path / "m.db", None, HashEmbedder())
-        st.add("keep the code python 3.9 compatible", trust="verified", project="shop")
+        from dore.integrations.hooks import mark_instructions
+        mark_instructions(st, [st.add("always keep the code python 3.9 compatible", trust="verified", project="shop")])
         return st
     t = threading.Thread(target=serve, args=(cfg, 1.0, factory), daemon=True)
     t.start()
@@ -250,8 +261,10 @@ def test_reask_in_claude_code_lowers_the_notes_shown(tmp_path):
 def test_prompt_output_is_capped(tmp_path):
     from dore.integrations.hooks import MAX_TOTAL_CHARS
     s = make(tmp_path)
-    for i in range(6):
-        s.add(f"rule {i}: always keep the code python 3.9 compatible " + "and tidy " * 15, trust="verified")
+    from dore.integrations.hooks import mark_instructions
+    ids = [s.add(f"rule {i}: always keep the code python 3.9 compatible " + "and tidy " * 15, trust="verified")
+           for i in range(6)]
+    mark_instructions(s, ids)
     out = prompt_context(s, "rename a variable", "shop", _State(tmp_path, "cap"))
     body = out.split("\n", 1)[1]
     assert 0 < len(body) <= MAX_TOTAL_CHARS + 10
@@ -286,12 +299,14 @@ def test_correction_reaches_rules_shown_at_session_start(tmp_path):
     s = make(tmp_path)
     s.duplicate_threshold = 1.01
     # (HashEmbedder scores the long real sentence 0.44; the real-embedder run is in reports/long-conversation)
-    old = s.add("Finance decided the max discount for codes is 50 percent, because of shipping.",
+    from dore.integrations.hooks import mark_instructions
+    old = s.add("Never give a discount over 50 percent on codes, because of shipping.",
                 trust="verified", project="shop")
+    mark_instructions(s, [old])
     st = _State(tmp_path, "rules")
     assert "50 percent" in on_prompt(s, "add a SUMMER code", "shop", st)   # shown as a rule
     on_prompt(s, "what does the cart total include?", "shop", st)  # an unrelated prompt in between
-    on_prompt(s, "No, the max discount for codes is 40 percent now.", "shop", st)
+    on_prompt(s, "No, never give a discount over 40 percent on codes now.", "shop", st)
     m = s.get(old)
     assert m.trust == "wrong" or m.replaced_by is not None
 

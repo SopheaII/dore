@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Memory for Claude Code. Say it once, it remembers in every new session.</strong><br/>
-  Runs on your laptop · free to learn · your memory never leaves your machine
+  Runs on your laptop · your notes never leave your machine · optional Haiku learning, about once a day
 </p>
 
 <p align="center">
@@ -40,13 +40,15 @@ dore manages the memory itself, outside the AI:
 
 | | Usual memory tools | dore |
 |---|---|---|
-| Who decides what to save | The AI (costs tokens, and it can forget) | dore, from what you type (free, every time) |
-| What Claude receives | The whole memory, or what the AI searched for | Only the notes that match your message (usually none) |
+| Who decides what to save | The AI (costs tokens, and it can forget) | dore, from what you type: local rules (free), or, if you turn it on, Haiku in one small batch a day |
+| What Claude receives | The whole memory, or what the AI searched for | Only the notes that match your message (usually none), plus your standing rules once per session |
 | When a fact changes | Old and new notes may both stay | The old note is replaced |
 | When notes disagree | No rule | What you said wins over what the AI guessed |
-| Where it runs | Sometimes a cloud service | Only on your computer |
+| Where it runs | Sometimes a cloud service | On your computer (with Haiku learning on, the sentences you type also go to Haiku once a day) |
 
-Learning costs 0 Claude tokens and adds about 13 ms to each message.
+Learning adds a few ms to each message. By default it costs 0 Claude tokens (local word rules). If you say yes at
+install, dore learns better with Claude Haiku instead: about once a day, in the background, one small batch
+(about 5-10k Haiku tokens a day on real use) sorts what you typed into facts, rules and noise.
 
 ## See it work in Claude Code
 
@@ -144,14 +146,26 @@ It also works with opencode and other MCP agents.
 3. **If it asks about something dore knows**, the hook adds the matching notes (a few lines) to your
    message, so Claude can answer. If nothing matches, nothing is added (0 tokens).
 4. **If a fact changes** ("the port is now 9443"), the newer note replaces the old one.
+5. **Rules you repeat** ("never use tabs", said in two sessions, in any words) or that Claude keeps following start
+   each new session, in a few lines at most; rules you stop repeating fade, like habits, and still come back when a
+   message matches them.
 
-Learning runs locally with small models, so it costs no Claude tokens and your memory never leaves your machine.
+With Haiku learning on, steps 2 and 4 happen later: every sentence you type is kept on your machine at once, and
+about once a day dore's background helper sends the waiting ones (not code, logs, pastes or Claude's replies) to
+Haiku through your own `claude` command. Haiku says which are lasting facts or rules, which repeat or update an
+existing note, and which are noise. Nothing is deleted; an old note is hidden only when a second check agrees
+it is out of date. Offline or at your plan's limit, the sentences wait and are tried again later.
+
+Without Haiku, learning runs locally with small models: no Claude tokens, and your memory never leaves your machine.
 
 ## Privacy
 
 - **Stays on your machine:** every note, everything you type, your projects and the search model's work.
   dore has no account, no server and no telemetry.
-- **The only thing dore sends:** once a day, one request for the public page
+- **With Haiku learning on** (you choose at install; change it in `~/.dore-memory/data/learner`): about once a day,
+  the sentences you typed since the last time go to Claude Haiku through your own `claude` login, like any message
+  you send Claude. Your notes stay on your machine.
+- **Otherwise the only thing dore sends:** once a day, one request for the public page
   `https://registry.npmjs.org/dore-memory/latest` to see the newest version number. It carries nothing about
   you or your memory; npm sees an ordinary request from your IP address. When there is a newer version, the
   update downloads it from npm and GitHub. Off with `DORE_NO_AUTO_UPDATE=1`.

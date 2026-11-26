@@ -74,11 +74,11 @@ def test_consolidation_learns_old_sentences_with_new_rules_dated_when_said(tmp_p
                  created=old)
     episodes.add(s, ["ok plese ship the build for me"], "infra", "old", judged="older-rules", created=old)
     done = consolidate(s)
-    assert done == {"embedded": 2, "judged": 2, "learned": 1}
+    assert done == {"embedded": 2, "judged": 2, "learned": 1, "remarked": 0}  # a new store: nothing to re-mark
     note = s.search("Which platform do I deploy to?", k=1)[0]
     assert note.content.startswith("Kubernetes") and note.created == old and note.project == ""
     assert rows(s, "SELECT note_id IS NOT NULL, told, scope FROM episodes ORDER BY id") == [(1, 1, ""), (0, 0, "infra")]
-    assert consolidate(s) == {"embedded": 0, "judged": 0, "learned": 0}  # judged once per rules version
+    assert consolidate(s) == {"embedded": 0, "judged": 0, "learned": 0, "remarked": 0}  # once per rules version
 
 
 @needs_parser

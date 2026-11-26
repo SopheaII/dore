@@ -20,6 +20,7 @@ its measured behaviour moves into the rule file and the plan is updated or remov
 
 - `junk-notes.md`: fewer junk notes, judged by use over time (roadmap step 3)
 - `scope-redesign.md`: project vs general (roadmap step 4)
+- `memory-consolidation.md`: learning by batched Haiku consolidation, recall by cue (built, opt-in; left: evals on recorded answers)
 
 ## Skills
 - `learning-change`: procedure before changing learning or retrieval rules

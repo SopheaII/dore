@@ -90,6 +90,67 @@ the user uses dore only through coding agents. Their findings are in git history
 - Left: a request written as a question ("can you add …?") counts as a question, so a note on trial can be tried
   there (it is archived if never used).
 
+## Rules come to mind like habits (2026-11-26)
+
+- **An instruction is known by its form, lasting by evidence** (2026-11-26; the "never/must/decided/limit" word list is
+  gone). `grammar.instruction`: a command with never/always/don't, or the user's own standing way ("I don't want…",
+  "we always…", "I prefer…", "I like to <do>…"); not a description ("the upload limit is 10 MB"), an event (past
+  tense: "we decided…", "I didn't…"), a plain command (usually a request for now: "commit this"), a question, a
+  state of mind ("I don't think…"), a taste ("I like jazz"), a clause hanging off another ("because…"); after a
+  short label ("Note: …") the rest is judged. DEV 22/22, HELDOUT 12/12; on real notes 6 of 8 statements it marks
+  are real instructions (the word list: 5 of 9). Whether one *lasts* is left to evidence (said again in another
+  session, practised): a real replay of 113 sessions over 12 projects found that the user almost never repeats a
+  rule in the same words, "No, …" right after Claude acted was bug feedback every time (3 of 3, not a rule), and
+  repeats by meaning (>= 0.75) were mostly different requests ("Don't use java" ~ "Never use tabs" 0.79): none of
+  those is used as evidence. A first-person preference starts sessions only when it is about the work: most of its
+  topic words come up in Claude's replies (`hooks.about_work`; "I don't like coffee" never does). Marked when saved
+  by the hook (`mark_instructions`); notes saved before are re-marked once, while idle, a batch at a time
+  (`remark_instructions` in `consolidate`; 3,000 notes took 4.2 s, too slow for the prompt path).
+  Real replay: 1 note would start sessions (a real rule), 0 junk; 936 messages, 4.3 tokens per message on average,
+  no long session grows. Research behind it: CoALA (facts vs how to act), LangMem (procedures from feedback),
+  Wood & Neal (habits: context -> action, built by repetition) — `REFERENCES.md`.
+- **A request never comes unprompted**: a request's whole text (`kind="requirement"`, `source="user"`) asks for
+  something done now; only the rule parts taken out of it (`RULE_SOURCE`) and statements may start sessions (on a
+  copy of the real memory, most marked instructions were such request texts, hidden until repeated).
+- **"here" is the codebase only when the sentence isn't about the user** (`statements.scope_for`,
+  `rules.codebase_place`): "I live here in Phnom Penh" is the user's (general); "here we never push…" and "in this
+  repo…" are the project's (review finding 2026-11-26).
+- **Marked once, when saved** (`memories.rule`, by `grammar.instruction`; old notes re-marked once while idle). A session start
+  reads only rule notes through an index (`MemoryStore.rule_notes`): 20,400 notes with 400 rules, 8.6 ms (the old
+  read of the newest 200 notes, re-tested each time: 15.2 ms, and rules older than those 200 were never seen).
+- **Strength, not a count** (`memory.activation`, ACT-R base-level learning): every repeat (`times_seen`) and every
+  clear use by Claude (`uses`, `last_used`) adds strength; strength fades as a power of time; often-repeated rules
+  fade slowly. A proven rule starts sessions while at least as strong as one mention 30 days ago (`FADE_DAYS`):
+  said twice it lasts ~4 months, said 5 times over a year it lasts past a year without repeats. A faded rule is not
+  deleted or hidden: search still adds it when a message matches.
+- **No fixed number, never cut, one budget per session**: the rules in mind, strongest and closest to the first
+  prompt first (context primes memory), are picked while they fit `RULES_PER_SESSION` (600 characters, the old
+  block's most), so the README's "only the notes that match your message" stays true. Notes that answer the prompt
+  come first; a picked rule that doesn't fit that message comes whole with the next one. Rules not picked are not
+  lost: search adds them when a message matches. Measured (`eval.rules`): 3 / 6 / 10 / 20 / 40 proven rules cost
+  70 / 122 / 157 / 158 / 160 tokens per session, one message (unlimited carry-over was 70 / 122 / 209 / 406 / 800).
+- **Practice keeps a rule alive** (`hooks.practise_rules`, `practised`, `grammar.rule_parts`, 2026-11-26): what
+  Claude did in its answer (tool inputs: commands run, code written; `hooks.last_turn`) is checked against every
+  proven rule note of the project, once per rule per session. Practice = most of what the rule wants (light verbs
+  left out, words weighted by rarity) is in Claude's text or actions, part of it in what it did, and nothing the
+  rule forbids (what "never/don't/not", "without", "no" apply to) is in what it did: "never use print, use the
+  logger" is practised by `logger.info`, broken by `print(`. A rule that only forbids ("never use tabs") can't be
+  seen being followed and fades unless repeated. Practice never proves a rule on trial: in the real replay three
+  feature requests with "should" were "practised" by Claude implementing them (note lines 109 -> 131); only
+  rules the user said in two sessions are kept alive by practice. `eval.rules` 24/24.
+- **A repeat in the same session doesn't prove a note** (`hooks.learn_message`): only another session does.
+- **Notes and rules are one store**: a rule is a note with `rule=1` (an instruction by form). A note that is also a
+  rule is shown once per message (it was shown twice: as the matching note and as a session-start rule; fixed
+  2026-11-26, `eval.rules` case). Facts ("the upload limit is 10 MB", "we decided…") are never rules.
+- **"in this repo", "here", "locally" keep a note in its project** (`statements.scope_for` uses `rules.local_value`):
+  "Here we never push straight to main" went general through `ORG` ("we never"). Without a place word, a standing
+  rule with no subject is still the user's (general).
+- `python -m dore.eval.rules`: 17 cases (said once / twice / in one session, fading, spacing, changed, project vs
+  user, personal "don't", complaint, long rule, notes first, over budget) all pass; quoting a rule ("you said
+  'never use tabs'") is a known gap. Real memory today: 3 rule notes, all on trial, so none start a session.
+- Left: quoting a rule ("you said 'never use tabs'") can still be saved as a hidden rule part (never shown unless
+  said again in another session).
+
 ## Project vs general (scope)
 
 - A note's `project` is the session's **git repo** (`integrations.project`, 2026-11-26): the remote
@@ -143,3 +204,23 @@ Measured 2026-11-25 (`dore.eval.learning`, `dore.eval.stream seeds 5`):
 - Questions with no answer still get loosely related notes (`bench scale`: 0/100 empty).
 - Every add checks duplicates with a flat search (O(n)): fine for chat, slow for bulk loads of 100k (440 items/s).
 - Re-ask detection misses big rewordings ("What is my job?" / "What do I do for work?" 0.79).
+
+## Learning by Haiku consolidation (opt-in, 2026-11-26)
+
+- `data/learner` = `haiku` (asked at install, default no; `DORE_LEARN` overrides): the prompt hook only queues the
+  message's sentences in raw memory (`hooks.queue_message`, shape filter `learn.consolidate.sentences`: 3-60 words,
+  questions only with 12+ words, no code/logs, nothing from messages over 3,000 chars, at most 20 per message, not
+  Claude's text pasted back). An exact repeat of a sentence that became a note counts at once (`said_again`, once per
+  session, `note_sessions`).
+- A batch (30 sentences, or the oldest a day old) goes to Haiku in one call (`learn.judge`), each with up to 3 notes
+  >= 0.6 similar. Verdicts: skip / fact / rule (with situation and forbidden words for practice) / same #id or @line /
+  update #id. Checks: ids only from that line's shortlist; every name and number in a note must be in the sentence
+  (`grounded`); an update hides the old note only when a second focused question ("can both be true?") says no
+  (`confirm_updates`): without it updates were 21-29/35, with it 34-35/35. If unsure: project scope.
+- Measured (`python -m dore.eval.consolidation`, recorded answers): DEV facts 59/62, right scope 55/62, junk 1/81;
+  HELDOUT 43/46, 42/46, junk 2/46 (both pasted assistant summaries); updates 35/35. Real labelled prompts: junk 8/237,
+  mostly real rules stated inside requests. Real replay (810 messages): 71 notes, 18 rules, 3 proven, 13 rewordings
+  merged (word rules: 216 notes, 45 rules, 0 proven). Low effort + thinking off: same answers, ~8x fewer output
+  tokens; run outside any project folder (inside one Claude Code loads its CLAUDE.md: ~4.7k tokens a call).
+- Haiku answers vary run to run (updates 29-35/35 across prompt versions): judge a prompt change on HELDOUT, more
+  than one run when the difference is small.

@@ -325,3 +325,34 @@ def test_a_side_clause_before_the_fact_is_dropped():
     assert user_facts("quick note, we use pnpm") == ["We use pnpm"]
     assert user_facts("Locally, the app listens on 3001") == ["Locally, the app listens on 3001"]
     assert user_facts("In production, the api runs on port 443") == ["In production, the api runs on port 443"]
+
+
+def test_an_instruction_is_known_by_its_form_not_its_words():
+    """`grammar.instruction`: commands with never/always/don't and the user's own standing way are instructions;
+    descriptions, events, plain commands, questions and states of mind are not (DEV, then HELDOUT wording)."""
+    from dore.learn.grammar import instruction
+    yes = ["never use tabs, always 2 spaces", "Never use tabs in this repo, always 2 spaces",
+           "please don't reformat existing code", "I prefer short answers", "I don't want ai to summary any thing",
+           "we always squash commits before merging", "Do not just assume", "always pin dependency versions",
+           "I like to write small functions", "Rule 1: always keep the code python 3.9 compatible",
+           "Note: we never deploy on fridays",
+           # HELDOUT
+           "never log personal data", "don't touch the migrations folder", "I like to keep pull requests small",
+           "we usually write the docs in markdown", "I never use semicolons in javascript"]
+    no = ["We decided to keep the cart in redis", "Finance decided the max discount is 50%", "the upload limit is 10 MB",
+          "commit this for me", "can you never use tabs?", "the api runs on port 8080", "I moved the dev server to 3001",
+          "tests are required for every endpoint", "I don't know why it fails", "I like jazz music",
+          "I think we never deploy on fridays", "FYI: the api runs on port 8080", "I didn't use docker",
+          "because I don't use the right tool", "if we never test it, it breaks",
+          # HELDOUT
+          "the board has 8MB of psram", "we trained the model for 3 epochs", "the max batch size is 64",
+          "restart the service", "I don't think this is right", "I love the new logo"]
+    assert [t for t in yes if not instruction(t)] == []
+    assert [t for t in no if instruction(t)] == []
+
+
+def test_here_is_the_codebase_only_when_the_sentence_is_not_about_the_user():
+    from dore.learn.statements import scope_for
+    assert scope_for("I live here in Phnom Penh", "shop") == ""            # the user's, in every project
+    assert scope_for("Here we never push straight to main", "shop") == "shop"
+    assert scope_for("In this repo I always use tabs", "shop") == "shop"   # the codebase named

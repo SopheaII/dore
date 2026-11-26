@@ -77,13 +77,27 @@ class MemoryStore:
             self.db.execute("ALTER TABLE memories ADD COLUMN project TEXT NOT NULL DEFAULT ''")
         for col, typ in (("last_seen", "REAL"), ("replaced_by", "INTEGER"), ("valid_to", "REAL"),
                          ("key_vector", "BLOB"), ("tries", "INTEGER NOT NULL DEFAULT 0"),
-                         ("uses", "INTEGER NOT NULL DEFAULT 0"), ("said_in", "TEXT")):
+                         ("uses", "INTEGER NOT NULL DEFAULT 0"), ("said_in", "TEXT"),
+                         ("rule", "INTEGER NOT NULL DEFAULT 0")):
             if col not in cols:
                 self.db.execute(f"ALTER TABLE memories ADD COLUMN {col} {typ}")
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_mem_rule ON memories(project) WHERE rule=1")
+        self.db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
         self.db.execute("CREATE TABLE IF NOT EXISTS reply_words (word TEXT PRIMARY KEY, n INTEGER NOT NULL)")
         self.db.execute("CREATE TABLE IF NOT EXISTS shadows (note_id INTEGER NOT NULL, project TEXT NOT NULL, "
                         "by_id INTEGER NOT NULL, PRIMARY KEY (note_id, project))")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_mem_project ON memories(project)")
+        if "words_key" not in cols:  # same words in the same order (`rules._dup_key`), for exact repeats
+            self.db.execute("ALTER TABLE memories ADD COLUMN words_key TEXT")
+            for col in ("rule_when", "rule_not"):  # a rule's situation and forbidden words (`learn.judge`)
+                if col not in cols:
+                    self.db.execute(f"ALTER TABLE memories ADD COLUMN {col} TEXT")
+            self.db.executemany("UPDATE memories SET words_key=? WHERE id=?",
+                                [(" ".join(_dup_key(c)), i) for i, c in self.db.execute(
+                                    "SELECT id, content FROM memories").fetchall()])
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_mem_words ON memories(project, words_key)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS note_sessions (note_id INTEGER NOT NULL, session TEXT NOT NULL, "
+                        "PRIMARY KEY (note_id, session))")
         had_fts = self.db.execute(
             "SELECT 1 FROM sqlite_master WHERE name='memories_fts'").fetchone() is not None
         self.db.executescript(FTS_SCHEMA)
@@ -361,41 +375,21 @@ class MemoryStore:
         kpos = [i for i, k in enumerate(keys) if k]
         kvecs = dict(zip(kpos, self.embedder.embed([embed_text(keys[i]) for i in kpos]).astype(np.float32))) if kpos else {}
         indexed = searchable(kind, trust)
-        thr = self.duplicate_threshold
-        # Items that can't be searched (wrong, unapproved answers) are never merged:
-        # merging an answer into a user's fact would let /correct mark that fact wrong.
-        if indexed and self.index.ntotal:
-            nn_sim, nn_id = self.index.search(vecs, 1)
-        else:
-            nn_sim = np.full((len(texts), 1), -1.0, dtype=np.float32)
-            nn_id = np.full((len(texts), 1), -1, dtype=np.int64)
-        within = vecs @ vecs.T if indexed and len(texts) > 1 else None
-        sigs = [_dup_key(t) for t in texts]
-        cand = [int(i) for i in nn_id[:, 0] if i != -1]
-        cand_sigs = {}
-        if cand:
-            # Only merge within the same project.
-            q = f"SELECT id, content, project FROM memories WHERE id IN ({','.join('?' * len(set(cand)))})"
-            cand_sigs = {i: _dup_key(c) for i, c, pr in self.db.execute(q, list(set(cand))) if pr == project}
-
+        # Same words in the same order, in the same project = the same note said again (case and punctuation
+        # aside). Items that can't be searched (wrong, unapproved answers) are never merged: merging an answer
+        # into a user's fact would let /correct mark that fact wrong. A threshold above 1 turns merging off.
+        merge = indexed and self.duplicate_threshold <= 1.0
+        sigs = [" ".join(_dup_key(t)) for t in texts]
         now = created or time.time()
         ids: list[int] = []
         new_rows: list[int] = []  # positions in this batch that were inserted and go in the index
         new_ids: list[int] = []
         for i, (text, vec) in enumerate(zip(texts, vecs)):
-            dup, best = None, thr
-            if indexed:
-                if (nn_id[i, 0] != -1 and nn_sim[i, 0] >= best
-                        and cand_sigs.get(int(nn_id[i, 0])) == sigs[i]):
-                    dup, best = int(nn_id[i, 0]), float(nn_sim[i, 0])
-                if within is not None and new_rows:
-                    sims = within[i, new_rows]
-                    for j in np.argsort(-sims):
-                        if sims[j] < best:
-                            break
-                        if sigs[new_rows[j]] == sigs[i]:
-                            dup = new_ids[j]
-                            break
+            dup = None
+            if merge:
+                dup = self.same_words(text, project)
+                if dup is None:
+                    dup = next((new_ids[j] for j, r in enumerate(new_rows) if sigs[r] == sigs[i]), None)
             if dup is not None:
                 self._merge(dup, text, source, trust, protected, now)
                 ids.append(dup)
@@ -409,10 +403,10 @@ class MemoryStore:
                 ids.append(back)
                 continue
             cur = self.db.execute(
-                "INSERT INTO memories (content, kind, source, trust, protected, created, vector, project, key_vector) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO memories (content, kind, source, trust, protected, created, vector, project, key_vector, "
+                "rule, words_key) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (text, kind, source, trust, int(protected), now, vec.tobytes(), project,
-                 kvecs[i].tobytes() if i in kvecs else (b"" if keys_given else None)),
+                 kvecs[i].tobytes() if i in kvecs else (b"" if keys_given else None), 0, sigs[i]),
             )
             ids.append(cur.lastrowid)
             if indexed:
@@ -421,11 +415,57 @@ class MemoryStore:
         self._index_add(vecs[new_rows], new_ids)
         return ids
 
-    def _tried_out(self, sig, project: str) -> int | None:
+    def _tried_out(self, sig: str, project: str) -> int | None:
         """A note with the same words that a trial archived (`mark_tried`), in this project."""
-        rows = self.db.execute("SELECT id, content FROM memories WHERE archived=1 AND project=? AND uses=0 "
-                               "AND tries>=?", (project, ARCHIVE_TRIES)).fetchall()
-        return next((i for i, c in rows if _dup_key(c) == sig), None)
+        row = self.db.execute("SELECT id FROM memories WHERE archived=1 AND project=? AND words_key=? AND uses=0 "
+                              "AND tries>=? LIMIT 1", (project, sig, ARCHIVE_TRIES)).fetchone()
+        return row[0] if row else None
+
+    def same_words(self, text: str, project: str) -> int | None:
+        """A searchable note of this project (or general, for project "") with the same words in the same order."""
+        row = self.db.execute(f"SELECT id FROM memories WHERE project=? AND words_key=? AND {SEARCHABLE_SQL} "
+                              "ORDER BY id LIMIT 1", (project, " ".join(_dup_key(text)))).fetchone()
+        return row[0] if row else None
+
+    def said_again(self, mem_id: int, when: float, session: str, first: bool = False) -> bool:
+        """The user said this note (again) in `session`. A repeat counts once per session: said twice in one chat is
+        the same moment. `first`: the note was just made from it. Returns True when it counted."""
+        with self._lock:
+            new = self.db.execute("INSERT OR IGNORE INTO note_sessions (note_id, session) VALUES (?, ?)",
+                                  (mem_id, session or "")).rowcount == 1
+            if new and not first:
+                self.db.execute("UPDATE memories SET times_seen=times_seen+1, last_seen=MAX(coalesce(last_seen, 0), ?) "
+                                "WHERE id=?", (when, mem_id))
+            self.db.commit()
+        return new and not first
+
+    def replace(self, old: int, new: int, project_only: str | None = None):
+        """`new` updates `old` (kept, dated, no longer searched). `project_only`: the update holds in that project
+        only, so a general note is hidden there instead of replaced. A protected note is never replaced."""
+        with self._lock:
+            m = self.get(old)
+            if m.protected:
+                return
+            if project_only and m.project == "":
+                self.db.execute("INSERT OR REPLACE INTO shadows (note_id, project, by_id) VALUES (?,?,?)",
+                                (old, project_only, new))
+            else:
+                self.db.execute("UPDATE OR IGNORE shadows SET note_id=? WHERE note_id=?", (new, old))
+                self.db.execute("UPDATE memories SET replaced_by=?, valid_to=? WHERE id=?", (new, time.time(), old))
+                self._sync_index(m, self.get(old))
+            self.db.commit()
+
+    def is_rule(self, mem_id: int) -> bool:
+        row = self.db.execute("SELECT rule FROM memories WHERE id=?", (mem_id,)).fetchone()
+        return bool(row and row[0])
+
+    def set_rule_words(self, mem_id: int, when: list[str], forbid: list[str]):
+        """A rule's situation words and the words that would break it (practice, `hooks.practised`)."""
+        import json
+        with self._lock:
+            self.db.execute("UPDATE memories SET rule_when=?, rule_not=? WHERE id=?",
+                            (json.dumps(when), json.dumps(forbid), mem_id))
+            self.db.commit()
 
     def _merge(self, dup_id: int, text: str, source: str, trust: str, protected: bool, now: float):
         """Same fact stated again. Keep the stronger trust level and the first date (`created`);
@@ -518,6 +558,34 @@ class MemoryStore:
         if r is None:
             raise KeyError(mem_id)
         return _row(r)
+
+    def mark_rules(self, flags: dict[int, bool]):
+        """Mark notes as instructions (`memories.rule`, read by `rule_notes`); decided by the caller (the hook uses
+        the sentence's form, `grammar.instruction`)."""
+        if flags:
+            with self._lock:
+                self.db.executemany("UPDATE memories SET rule=? WHERE id=?", [(int(v), i) for i, v in flags.items()])
+                self.db.commit()
+
+    def meta(self, key: str, value: str | None = None) -> str | None:
+        """Read (or, with `value`, write) a small setting kept in the memory file."""
+        with self._lock:
+            if value is not None:
+                self.db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
+                self.db.commit()
+                return value
+            row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def rule_notes(self, project: str) -> list[Memory]:
+        """Searchable verified rule notes of this project and general ones: an indexed lookup of rule notes only
+        (the rest of memory is not read)."""
+        with self._lock:
+            self._refresh()
+            rows = self.db.execute(
+                f"SELECT {_COLS} FROM memories WHERE rule=1 AND project IN (?, '') AND trust='verified' "
+                f"AND {SEARCHABLE_SQL}", (project,)).fetchall()
+        return [_row(r) for r in rows]
 
     def get_many(self, ids: list[int]) -> dict[int, Memory]:
         if not ids:
@@ -664,10 +732,8 @@ class MemoryStore:
                 picked_vecs.append(v)
                 picked_words.append(w)
             if touch and picked:
-                self.db.executemany(
-                    "UPDATE memories SET times_used=times_used+1, last_used=? WHERE id=?",
-                    [(now, m.id) for m in picked],
-                )
+                # Found is not used: `last_used` is only Claude using a note (it gives strength, `memory.activation`).
+                self.db.executemany("UPDATE memories SET times_used=times_used+1 WHERE id=?", [(m.id,) for m in picked])
                 self.db.commit()
             return picked
 
@@ -701,7 +767,9 @@ class MemoryStore:
         gone = []
         with self._lock:
             for i in ids:
-                self.db.execute("UPDATE memories SET tries = tries + 1, uses = uses + ? WHERE id=?", (int(i in used), i))
+                self.db.execute("UPDATE memories SET tries = tries + 1, uses = uses + ?, "
+                                "last_used = CASE WHEN ? THEN ? ELSE last_used END WHERE id=?",
+                                (int(i in used), int(i in used), time.time(), i))
             self.db.commit()
             for i, m in self.get_many(ids).items():
                 if (on_trial(m) or m.kind == "requirement") and m.uses == 0 and m.tries >= ARCHIVE_TRIES \

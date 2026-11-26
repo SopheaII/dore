@@ -2,7 +2,7 @@
 
 import json
 
-from dore.integrations.hooks import (_State, judge_last, last_reply, prompt_context, reply_words, use_check)
+from dore.integrations.hooks import (_State, judge_last, last_turn, prompt_context, reply_words, use_check)
 from dore.memory import MemoryStore, on_trial
 from dore.memory.embed import HashEmbedder
 from dore.memory.store import ARCHIVE_TRIES
@@ -85,7 +85,7 @@ def test_last_reply_is_the_answer_to_the_previous_message(tmp_path):
         {"type": "assistant", "message": {"content": [{"type": "text", "text": "In shop-assets."}]}},
     ]
     log.write_text("\n".join(json.dumps(e) for e in ev))
-    assert last_reply(log) == "In shop-assets."
+    assert last_turn(log)[0] == "In shop-assets."
     log.write_text("\n".join(json.dumps(e) for e in ev + [{"type": "user", "message": {"content": "next one"}}]))
-    assert last_reply(log) == "In shop-assets."  # the log may already hold the new message
-    assert last_reply(None) == ""
+    assert last_turn(log)[0] == "In shop-assets."  # the log may already hold the new message
+    assert last_turn(None) == ("", "")

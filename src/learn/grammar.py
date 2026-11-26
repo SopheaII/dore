@@ -17,7 +17,7 @@ VOLITION = {"want", "need", "wanna", "wish", "hope", "plan", "gon"}  # wanting =
 # "I think/suspect/saw X" reports a passing state of mind, not a fact.
 MENTAL = {"think", "guess", "feel", "believe", "suppose", "assume", "suspect", "reckon", "presume", "figure",
           "fear", "sense", "gather", "wonder", "doubt", "bet", "expect", "imagine", "understand", "mean", "see",
-          "saw", "notice", "realize", "realise", "worry", "try", "get", "forget", "miss", "confuse"}
+          "saw", "notice", "realize", "realise", "worry", "try", "get", "forget", "miss", "confuse", "know"}
 UNSURE = {"sure", "certain", "confused", "lost", "worried", "afraid"}
 PERCEPTION = {"look", "seem", "sound", "appear", "feel"}
 STANDING = {"always", "never", "ever", "usually", "every"}  # "Always use spaces" is a rule, not a request
@@ -299,6 +299,80 @@ def fact_text(sentence: str) -> str | None:
                 return text[:1].upper() + text[1:]
         break
     return ""
+
+
+# Attitude verbs: how the user wants things done ("I prefer short answers", "I hate long meetings").
+PREFER = {"prefer", "like", "love", "hate", "dislike", "enjoy"}
+
+
+def instruction(text: str) -> bool:
+    """An instruction about how to work, by the sentence's form (not its topic words): a command with "never",
+    "always", "don't" ("never use tabs", "please don't reformat existing code"), or the user's own standing way
+    ("I don't want summaries", "we always squash commits", "I prefer short answers"). Not: a description ("the
+    upload limit is 10 MB"), an event ("we decided to keep the cart in redis"), a question, or a plain command,
+    which is usually a request for now ("commit this"). Whether it lasts is left to evidence (repeats, practice)."""
+    parser = nlp()
+    if parser is None or text.rstrip().endswith("?"):
+        return False
+    first = re.match(r"\W*([A-Za-z']+)", text)
+    if first and first.group(1).lower() in SUBORDINATE:  # "because I don't ...", "if we never ...": hangs off another
+        return False
+    label = re.match(r"^\s*\S+(?:\s+\S+){0,2}?\s*:\s+(\S.*)$", text, re.S)  # "Note: ...", "Rule 1: ..." (by shape)
+    if label and len(label.group(1).split()) >= 2 and instruction(label.group(1)):
+        return True
+    for sent in parser(text).sents:
+        # The main clause and clauses joined to it ("..., always 2 spaces"; "Rule 1: always keep ...": after a label
+        # the parser hangs the sentence under it as "dep").
+        joined = ("conj", "parataxis", "dep") + (() if _mental(sent.root) else ("ccomp",))  # "I think we never ...": a belief
+        for h in [sent.root] + [c for c in sent.root.children if c.dep_ in joined]:
+            if h.pos_ not in ("VERB", "AUX"):
+                continue
+            kids = list(h.children)
+            subj = [c for c in kids if c.dep_ in SUBJ]
+            standing = any(c.dep_ == "neg" for c in kids) or any(c.lower_ in STANDING for c in kids)
+            # A command: no subject (the parser tags a sentence-first command VB or VBP: "always pin versions").
+            if not subj and h.tag_ in ("VB", "VBP") and standing and not any(c.tag_ == "MD" for c in kids):
+                return True
+            # The user's own way; not a state of mind ("I don't think ...", "I don't know ..."; "don't assume" is a
+            # command, above).
+            # An attitude verb counts when it is about doing ("I like to use X", "I prefer X": a choice), not a taste
+            # in things ("I like naval talk").
+            attitude = h.lemma_.lower() in PREFER and (h.lemma_.lower() == "prefer" or any(
+                c.dep_ in ("xcomp", "ccomp") and c.pos_ in ("VERB", "AUX") for c in kids))
+            past = any(c.dep_ in ("aux", "auxpass") and c.tag_ == "VBD" for c in kids)  # "I didn't", "i saw not": events
+            if subj and subj[0].lower_ in FIRST and h.tag_ in ("VB", "VBP") and not _mental(h) and not past \
+                    and (standing or attitude):
+                return True
+    return False
+
+
+_HELD_OUT = {"dobj", "attr", "prep", "pobj", "xcomp", "acomp", "oprd", "dative", "advcl", "ccomp", "npadvmod"}
+
+
+def rule_parts(rule: str) -> tuple[list[str], list[str]]:
+    """(wanted, forbidden) content words of a standing rule, by grammar: what a negated verb ("never", "don't",
+    "not"), "without" or "no" applies to is forbidden ("never use print for logging, use the logger": forbidden
+    print, logging; wanted logger). Closed classes only: negation, "without", "no"."""
+    parser = nlp()
+    if parser is None:
+        return [], []
+    doc = parser(rule)
+    forbidden: set[int] = set()
+    negated: set[int] = set()
+    for t in doc:
+        if t.dep_ == "neg":
+            v = t.head
+            negated.add(v.i)
+            for c in v.children:
+                if c.dep_ in _HELD_OUT:
+                    forbidden |= {k.i for k in c.subtree}
+        elif t.lower_ == "without" and t.dep_ == "prep":
+            forbidden |= {k.i for k in t.subtree if k.i != t.i}
+        elif t.lower_ == "no" and t.dep_ == "det":
+            forbidden |= {k.i for k in t.head.subtree if k.i != t.i}
+    content = [t for t in doc if t.pos_ in ("NOUN", "PROPN", "VERB", "ADJ", "NUM", "X") and not t.is_stop]
+    wanted = [t.text for t in content if t.i not in forbidden and t.i not in negated and t.lower_ not in STANDING]
+    return wanted, [t.text for t in content if t.i in forbidden]
 
 
 def strip_lead(sentence: str) -> str:

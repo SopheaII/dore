@@ -212,6 +212,14 @@ _PLACE_NOUNS = "|".join(sorted(GENERIC - {"here", "locally", "this"}))
 _LOCAL = re.compile(rf"\b(?:here|locally)\b|\b(?:this|in our|for our) (?:{_PLACE_NOUNS})\b", re.I)
 
 
+_CODEBASE = re.compile(rf"\b(?:this|our) (?:{_PLACE_NOUNS})\b", re.I)
+
+
+def codebase_place(text: str) -> bool:
+    """The place named is the codebase itself ("in this repo", "for this project"), not just "here"."""
+    return bool(_CODEBASE.search(text))
+
+
 def local_value(text: str) -> bool:
     """The sentence says its value holds for this place only ("here", "locally", "in this repo")."""
     return bool(_LOCAL.search(text))

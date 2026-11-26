@@ -141,16 +141,36 @@ function recordVersion() {
   fs.writeFileSync(path.join(DATA, "install.json"), JSON.stringify({ version }) + "\n");
 }
 
+// Learning with Haiku uses the user's own Claude Code login, so it is on only after a clear yes (default no; no
+// terminal = no). The choice is kept in data/learner ("haiku" or "rules"); DORE_LEARN overrides it.
+function chooseLearner() {
+  const file = path.join(DATA, "learner");
+  if (fs.existsSync(file) || process.env.DORE_LEARN) return;
+  let yes = false;
+  if (process.stdin.isTTY && has("claude")) {
+    console.log("dore-memory: dore can learn better with Claude Haiku: about once a day it sends the sentences you");
+    console.log("  typed (not code, logs, pastes or Claude's replies) to Haiku through your own `claude` command and");
+    console.log("  login, about 5-10k tokens a day. Without it, dore learns with local word rules only.");
+    process.stdout.write("  Use Haiku for learning? [y/N] ");
+    const buf = Buffer.alloc(256);
+    try { yes = buf.toString("utf8", 0, fs.readSync(0, buf, 0, 256, null)).trim().toLowerCase().startsWith("y"); } catch {}
+  }
+  fs.mkdirSync(DATA, { recursive: true });
+  fs.writeFileSync(file, (yes ? "haiku" : "rules") + "\n");
+}
+
 function install(upgrade) {
   say(`setting up in ${HOME} (first run downloads ~200 MB of packages and models)`);
   installPython(upgrade);
   recordVersion();
+  chooseLearner();
   const plugin = installPlugin(upgrade);
   say("done.");
   console.log(`  memory:  ${DATA}`);
   console.log(`  plugin:  ${plugin ? PLUGIN + " installed" : "not installed (see above)"}`);
   console.log("  Start a new Claude Code session; dore learns from what you tell it.");
-  console.log("  Your memory stays on this computer. Once a day dore asks npm for a newer version and updates");
+  console.log("  Your memory stays on this computer (with Haiku learning on, the sentences you type also go to Haiku,");
+  console.log("  once a day; change it in " + path.join(DATA, "learner") + "). Once a day dore asks npm for a newer version and updates");
   console.log("  itself in the background (nothing about you is sent); turn that off with DORE_NO_AUTO_UPDATE=1.");
 }
 

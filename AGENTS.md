@@ -1,6 +1,6 @@
 # dore agent guide
 
-dore is a local memory for Claude Code and other coding agents that keeps learning from everyday use without training: every fact and correction is a note in fast memory (SQLite + FAISS), learned and shared through hooks at ~0 Claude tokens. Project facts stay in their project; facts about the user and organisation are general. It is used only through coding agents (Claude Code, opencode, MCP clients): dore's own local-model chat and web chat were removed on 2026-11-26. Roadmap: below; known weaknesses: the rule files. Sources of borrowed ideas: `REFERENCES.md` (add new ones; mark unverified ones ⚠️).
+dore is a local memory for Claude Code and other coding agents that keeps learning from everyday use without training: every fact and correction is a note in fast memory (SQLite + FAISS), learned and shared through hooks at ~0 Claude tokens (or, opt-in, one small Haiku batch a day). Project facts stay in their project; facts about the user and organisation are general. It is used only through coding agents (Claude Code, opencode, MCP clients): dore's own local-model chat and web chat were removed on 2026-11-26. Roadmap: below; known weaknesses: the rule files. Sources of borrowed ideas: `REFERENCES.md` (add new ones; mark unverified ones ⚠️).
 
 ## Rules (do not break)
 
@@ -15,8 +15,10 @@ dore is a local memory for Claude Code and other coding agents that keeps learni
   wrong place (the data model, when it is decided, what evidence it uses) and change that, so the whole class of
   cases works. No new word lists, thresholds tuned to one case, or special cases for one sentence; existing lists
   should shrink. Before building a part, look for a maintained library that already does it (PyPI,
-  `REFERENCES.md`), measure it, and prefer it over writing our own. No new ready-made AI models (the user's choice,
-  2026-11-26): use evidence (what the user and Claude do next) and the parser and embedder dore already has.
+  `REFERENCES.md`), measure it, and prefer it over writing our own. No new local ready-made AI models (the user's
+  choice, 2026-11-26). The one model call allowed is Claude Haiku in batched consolidation (`learn.judge`,
+  `integrations.learner`): opt-in, about once a day, never on the prompt path; otherwise use evidence (what the
+  user and Claude do next) and the parser and embedder dore already has.
 - **Speed is part of the design.** The prompt hook stays fast (median ~10–25 ms; `bench stream`, `bench scale`).
   A model on the prompt path must be small (ONNX) and run on a few items only; heavier models run in idle
   consolidation. Report ms and tokens with every change.
@@ -37,7 +39,7 @@ dore is a local memory for Claude Code and other coding agents that keeps learni
 
 ## Layout
 
-`src/` **is** the `dore` package (`package-dir = {"dore" = "src"}`); import with full paths (`from dore.memory import MemoryStore`). Each layer imports only earlier ones: `config.py` → `memory/` (types, schema, rules, store, embed, ingest; no model) → `learn/` (what to learn from a message: `statements` shape and word rules, `grammar` spaCy gate) → `integrations/` (hooks, hookd, hookclient, bridge, server, backfill) → `eval/` (cases, learning, conversation, stream, scale, bench, demo).
+`src/` **is** the `dore` package (`package-dir = {"dore" = "src"}`); import with full paths (`from dore.memory import MemoryStore`). Each layer imports only earlier ones: `config.py` → `memory/` (types, schema, rules, store, embed, ingest; no model) → `learn/` (what to learn from a message: `statements` shape and word rules, `grammar` spaCy gate; `judge` + `consolidate`: the opt-in Haiku learner) → `integrations/` (hooks, hookd, hookclient, learner, bridge, server, backfill) → `eval/` (cases, learning, conversation, stream, scale, bench, demo).
 
 - Git-ignored, never commit: `data/` (models, memory DB, caches), `reports/` (one machine's results).
 - fastembed caches in `/tmp` by default (wiped on reboot): always pass `cache_dir=cfg.cache_dir / "fastembed"`.
@@ -52,7 +54,12 @@ Success = `bench stream`: correct up, stale/leak/junk/repeat mistakes down, toke
 
 1. Done (2026-11-26; real replay 70 -> 46 notes, every real fact kept; echo check; hub correction; stale weeks 3–4 2.0/2.8). Left for meaning, not rules: synonym topics ("db" / "database", "deploy" / "hosted"). Details: [memory-learning](.agents/rules/memory-learning.md).
 2. Learn from Claude's side at SessionEnd: measured 2026-11-25 on 117 real sessions, "a failed shell command then a similar one that worked" gave 2 lessons, both junk (exploratory reads in long chained commands; 145 of 186 real failures are long multi-step commands): not adopted. Commit messages only repeat `git log`. Next signal to measure: the user accepting a proposal ("yes, keep that").
-3. Consolidation and forgetting. Done: `dore.learn.recheck` archives notes today's rules would not store (2026-11-25); raw memory of every typed sentence that is not a note, consolidated while idle and judged again when the rules change, so a fixed rule also learns past sentences (`memory.episodes`, `hooks.consolidate`, `integrations.backfill`; 2026-11-26; recall of raw sentences on a cue measured ~3 useful of 11: off). Done 2026-11-26: notes on trial, Voyager-style (shown only on questions until Claude's reply clearly uses them or the user says them again; tried 3 times unused -> archived; real replay 280 -> 121 note lines; tokens per work prompt 3.7 -> 0.4). Next: a raw sentence that tells something, said again in another session, becomes a note. Left: score (use + recency + trust), decay, archive (never delete; protected exempt), merge similar notes.
+3. Consolidation and forgetting. Done: `dore.learn.recheck` archives notes today's rules would not store (2026-11-25); raw memory of every typed sentence that is not a note, consolidated while idle and judged again when the rules change, so a fixed rule also learns past sentences (`memory.episodes`, `hooks.consolidate`, `integrations.backfill`; 2026-11-26; recall of raw sentences on a cue measured ~3 useful of 11: off). Done 2026-11-26: notes on trial, Voyager-style (shown only on questions until Claude's reply clearly uses them or the user says them again; tried 3 times unused -> archived; real replay 280 -> 121 note lines; tokens per work prompt 3.7 -> 0.4). Next: a raw sentence that tells something, said again in another session, becomes a note. Done 2026-11-26: rules fade like habits (ACT-R strength from repeats and uses; no fixed number; a session start reads only rule notes). Left: the same strength for all notes (score, decay), merge similar notes.
+3b. Learning by Haiku consolidation (plan: [memory-consolidation](.agents/plans/memory-consolidation.md), 2026-11-26):
+   built and opt-in (`data/learner` = haiku). Measured: junk DEV 7/81 -> 1/81, HELDOUT 3/46 -> 2/46, updates 35/35
+   (with the confirm step), real replay 216 -> 71 notes, 45 -> 18 rules, 13 rewordings merged; prompt hook 13.8 -> 4.4 ms;
+   ~1.5k tokens per batch of 30. Left: port `eval.stream`/`conversation`/`rules` to recorded Haiku answers, then
+   delete the word-rule learner for opt-in users; promotion of a rule said in 2+ projects to general.
 4. Scope redesign (plan: [scope-redesign](.agents/plans/scope-redesign.md), 2026-11-26): a project is its git repo
    (worktrees and subfolders share it), not its folder name; scope belongs to what a fact is about, not its wording;
    updates stay in their level; levels user / workspace / repo / home, most specific wins; promotion by evidence

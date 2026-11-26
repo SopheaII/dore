@@ -136,11 +136,16 @@ def scope_for(text: str, project: str) -> str:
     With the parser: by the sentence's subject (`grammar.about_user`), so "I set the dev server
     to port 3001" stays in the project; without it: any "I/my/me" makes it general."""
     from dore.learn.grammar import about_user
-    if ORG.search(text):
-        return ""
+    from dore.memory.rules import codebase_place, local_value
     mine = about_user(text)
     if mine is None:
         mine = bool(PERSONAL.search(text))
+    # Said for this place only: "in this repo ...", or "here we ..." when it is not about the user ("I live here in
+    # Phnom Penh" is the user's, in every project).
+    if codebase_place(text) or (local_value(text) and not mine):
+        return project
+    if ORG.search(text):
+        return ""
     return "" if mine else project
 
 

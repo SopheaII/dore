@@ -13,6 +13,7 @@ from pathlib import Path
 from dore.config import Config
 
 SOCKET_NAME = "hook.sock"
+SKIP_ENV = "DORE_SKIP"
 REPLY_TIMEOUT = 15.0  # below the hook's own timeout (20 s)
 
 
@@ -62,6 +63,8 @@ def start_helper():
 
 
 def main(argv: list[str] | None = None):
+    if os.environ.get(SKIP_ENV) == "1":  # the Claude session dore itself starts to judge notes (`learn.judge`)
+        return
     argv = sys.argv[1:] if argv is None else argv
     event = argv[0] if argv else ""
     try:

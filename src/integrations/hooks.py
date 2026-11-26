@@ -22,6 +22,7 @@ from dore.learn.statements import (ASKS_START, CORRECTION_LEAD, IMPLICIT_FEEDBAC
 from dore.integrations import update
 from dore.integrations.project import display_name, project_of
 from dore.memory import SEARCHABLE_SQL, MemoryStore, episodes, on_trial, replaces, same_frame
+from dore.memory.activation import strength, THRESHOLD
 
 
 def _rules_version() -> str:
@@ -53,19 +54,13 @@ GAP = 0.05
 # Claude they matched every prompt saying "dore" and name the wrong assistant.
 ABOUT_ASSISTANT = re.compile(r"^\s*(your\b|you are\b|you'?re\b)", re.I)
 SAME_THING = 0.72  # note-to-note: same thing (updates 0.73-0.82; but different facts reach 0.82 too, so this only adds, never hides)
-MAX_RULES = 6
 MAX_NOTES = 3
 MAX_CHARS = 160        # per note shown
 MAX_TOTAL_CHARS = 600  # everything one prompt adds (~150 tokens; AGENTS.md / hook-cost skill)
+RULES_PER_SESSION = 600  # rules no message asked for, per session (the old block's most: 6 rules, 600 chars)
 CONFLICT_SIMILARITY = 0.7  # a correction marks wrong only notes this close (and one detail changed)
-# Constraints / decisions that apply to all work in a project.
-RULE = re.compile(r"\b(must|always|never|don'?t|do not|should|shouldn'?t|keep\b.*\bcompatible|compatible with|"
-                  r"only use|required?|max(imum)?|min(imum)?|at most|at least|cap(ped)?|limit|policy|"
-                  r"decided|rule|prefer|convention|standard)\b", re.I)
-# A personal note ("I don't want to install apps...") is not a rule for the work just because it
-# says "don't": it was shown as a project rule at every session start (2026-11-25). Personal
-# notes count as rules only with these stronger words.
-PERSONAL_RULE = re.compile(r"\b(always|never|prefer|must|convention|standard|policy)\b", re.I)
+
+
 def _project(cwd: str | None) -> str:
     """The project key of a session started in `cwd`: its git repo (`integrations.project`)."""
     return project_of(cwd).key
@@ -117,20 +112,57 @@ def _showable(m) -> bool:
             and not (m.kind == "requirement" and m.trust != "verified" and m.similarity < REQ_SHOW))
 
 
+RULE_FORM = "1"  # version of how instructions are recognised (`grammar.instruction`); a change re-marks all notes
+
+
+def mark_instructions(store: MemoryStore, ids: list[int]):
+    """Mark which of these notes are instructions about how to work, by the sentence's form."""
+    from dore.learn.grammar import instruction
+    if ids:
+        store.mark_rules({m.id: instruction(m.content) for m in store.get_many(list(ids)).values()})
+
+
+def about_work(store: MemoryStore, text: str) -> bool:
+    """A personal preference is about the work when most of its words come up in Claude's replies ("I don't want
+    long answers": answers, long; "I don't like coffee": never). Evidence from this machine, no word list; with no
+    replies counted yet, unsure: not brought up unprompted."""
+    from dore.learn.grammar import PREFER, STANDING
+    from dore.memory.rules import LIGHT_VERBS, PREPOSITIONS
+    # The topic only: not grammar words (prepositions, light verbs, pronouns) nor the instruction's own form
+    # ("prefer", "always", "never").
+    form = LIGHT_VERBS | PREPOSITIONS | PREFER | STANDING | {"i", "me", "my", "we", "our", "don't", "not", "no"}
+    words = reply_words(text) - {w[:6] for w in form}
+    n, df = store.reply_counts(words)
+    if not words or not n:
+        return False
+    return sum(df.get(w, 0) > 0 for w in words) * 2 >= len(words)
+
+
+def rules_in_mind(store: MemoryStore, project: str, shown: set, vec=None) -> list:
+    """Proven standing rules strong enough to come to mind without a cue (`memory.activation`: every repeat or use
+    adds strength, strength fades with time, often-repeated rules fade slowly), strongest first, those close to the
+    session's first prompt before others (context primes memory). Reads only rule notes (`MemoryStore.rule_notes`)."""
+    now, out = time.time(), []
+    for m in store.rule_notes(project):
+        # A request's whole text asks for something done now: only the rule parts taken out of it (`RULE_SOURCE`)
+        # and statements may come to mind unprompted; the request itself only when a message matches it.
+        if m.kind == "requirement" and m.source != RULE_SOURCE:
+            continue
+        if m.id in shown or on_trial(m) or not _showable(m) or (not m.rule_when and PERSONAL.search(m.content)
+                                                                and not about_work(store, m.content)):
+            continue
+        b = strength(m.times_seen + m.uses, m.created, max(m.created, m.last_seen or 0, m.last_used or 0), now)
+        if b >= THRESHOLD:
+            near = float(store._vector(m.id) @ vec) if vec is not None else 0.0
+            out.append((b + near, m))
+    return [m for _, m in sorted(out, key=lambda x: -x[0])]
+
+
 def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State) -> str:
     shown = set(state.d["shown"])
-    cands: list[tuple[int, str, bool]] = []  # (id, line, is_note): rules first, then notes
-    if not state.d["rules_done"]:
-        state.d["rules_done"] = True
-        rows = store.db.execute(
-            f"SELECT id, content, project, created FROM memories WHERE {SEARCHABLE_SQL} AND trust='verified' "
-            "AND project IN (?, '') ORDER BY created DESC LIMIT 200", (project,)).fetchall()
-        trial = {m.id for m in store.get_many([r[0] for r in rows]).values() if on_trial(m)}
-        rules = [(i, c, p, t) for i, c, p, t in rows if i not in shown and i not in trial
-                 and RULE.search(c) and (not PERSONAL.search(c) or PERSONAL_RULE.search(c))][:MAX_RULES]
-        for i, c, p, t in rules:
-            cands.append((i, _line(i, c, created=t), False))
-            shown.add(i)
+    cands: list[tuple[int, str, bool]] = []  # (id, line, is_note): notes that answer the prompt, then rules
+    rules_due = not state.d["rules_done"]
+    state.d["rules_done"] = True
     hits = store.search(prompt[:2000], k=MAX_NOTES + len(shown), min_similarity=STRONG,
                         project=project or None, touch=False)
     asked = _asks(prompt)
@@ -152,6 +184,25 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
         cands.append((m.id, _line(m.id, m.content, label, m.created,
                                   limit=REQ_MAX_CHARS + 1 if m.kind == "requirement" else MAX_CHARS), True))
     vec = getattr(store, "last_query_vector", None)
+    # Rules in mind: at the session start every proven rule strong enough (`rules_in_mind`), the ones closest to the
+    # first prompt first; those that did not fit come with the next prompts. No fixed number of rules.
+    in_notes = {m.id for m in notes}  # a note that is also a rule is shown once, as the note that matched
+    pending = [i for i in state.d.get("rules_pending", []) if i not in shown and i not in in_notes]
+    if rules_due:
+        # One budget per session for rules no message asked for (the old block's maximum, ~150 tokens), so the
+        # README's "only the notes that match your message" stays true; no count: short rules, more of them.
+        # The strongest and closest to the first prompt win; the rest are still found when a message matches.
+        room, pending = RULES_PER_SESSION, []
+        for m in rules_in_mind(store, project, shown | in_notes, vec):
+            size = len(_line(m.id, m.content, created=m.created, limit=len(m.content))) + 1
+            if size <= room:
+                pending.append(m.id)
+                room -= size
+    rows = store.get_many(pending) if pending else {}
+    for i in pending:  # in rank order
+        if (m := rows.get(i)) is not None:
+            cands.append((m.id, _line(m.id, m.content, created=m.created, limit=len(m.content)), False))
+    rule_ids = set(pending)
     if vec is not None and EPISODE_STRONG <= 1 and _asks(prompt):
         said = set(state.d.get("episodes_shown", []))
         for eid, content, created, _ in episodes.recall(store, vec, project, state.session, said,
@@ -160,10 +211,12 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
                 f"#{eid} ", f"#e{eid} ", 1), False))
             state.d["episodes_shown"] = sorted(said | {eid})
     # Token cap: add lines while they fit; a line left out may still be shown on a later prompt.
-    lines, used, last_shown = [], 0, []
+    lines, used, last_shown, later = [], 0, [], []
     for mid, line, is_note in cands:
         if used + len(line) > MAX_TOTAL_CHARS:
             shown.discard(mid)
+            if mid in rule_ids:
+                later.append(mid)  # a rule never cut: it comes whole with a later prompt
             continue
         lines.append(line)
         used += len(line)
@@ -172,6 +225,7 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
         if is_note:
             last_shown.append(mid)
     state.d["shown"] = sorted(shown)
+    state.d["rules_pending"] = later
     state.d["last_shown"] = last_shown  # judged by the user's next prompt (react) and Claude's reply (judge_last)
     best = max((m for m in notes if m.id in set(last_shown)), key=lambda m: m.similarity, default=None)
     # Only the best match is on test (a side note beside a better one says nothing); rules too, like any note.
@@ -181,80 +235,91 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
     return "dore memory (use if relevant; trust user code/instructions over it):\n" + "\n".join(lines)
 
 
-def _user_messages(transcript: Path) -> list[str]:
-    """The user's own typed messages from a Claude Code session log (JSONL)."""
-    out = []
+def _log_events(transcript: Path | None, max_bytes: int | None = None) -> list[dict]:
+    """Events of a Claude Code session log (JSONL), only its last `max_bytes` when given."""
+    if not transcript:
+        return []
     try:
-        lines = transcript.read_text(encoding="utf-8", errors="replace").splitlines()
+        with open(transcript, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - max_bytes) if max_bytes else 0)
+            lines = f.read().decode("utf-8", errors="replace").splitlines()
     except OSError:
-        return out
+        return []
+    if max_bytes and size > max_bytes:
+        lines = lines[1:]  # read from the middle of a line
+    out = []
     for line in lines:
         try:
-            ev = json.loads(line)
+            out.append(json.loads(line))
         except ValueError:
             continue
-        if ev.get("type") != "user" or ev.get("isMeta") or ev.get("isSidechain"):
-            continue
-        content = (ev.get("message") or {}).get("content")
-        if isinstance(content, list):  # tool results are lists of blocks; typed text may be too
-            content = " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
-        if isinstance(content, str) and content.strip() and not content.lstrip().startswith("<"):
-            out.append(content)
     return out
 
 
-def assistant_text(transcript: Path | None, max_bytes: int = 400_000) -> str:
-    """Claude's recent replies in this session (the end of the session log), to recognise the
-    user pasting them back. "" when there is no log."""
-    if not transcript:
-        return ""
-    try:
-        with open(transcript, "rb") as f:
-            f.seek(0, 2)
-            f.seek(max(0, f.tell() - max_bytes))
-            lines = f.read().decode("utf-8", errors="replace").splitlines()[1:]
-    except OSError:
-        return ""
-    out = []
-    for line in lines:
-        try:
-            ev = json.loads(line)
-        except ValueError:
-            continue
-        if ev.get("type") != "assistant":
-            continue
-        for b in (ev.get("message") or {}).get("content") or []:
-            if isinstance(b, dict) and b.get("type") == "text":
-                out.append(b.get("text", ""))
-    return "\n".join(out)
+def typed_text(ev: dict) -> str | None:
+    """The text of a message the user typed. None for tool results, meta events, sub-agents and what Claude Code
+    itself writes into the log as a user event (command output, task notifications: wrapped in tags)."""
+    if ev.get("type") != "user" or ev.get("isMeta") or ev.get("isSidechain"):
+        return None
+    content = (ev.get("message") or {}).get("content")
+    if isinstance(content, list):
+        content = " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+    return content if isinstance(content, str) and content.strip() and not content.lstrip().startswith("<") else None
 
 
-def last_reply(transcript: Path | None, max_bytes: int = 400_000) -> str:
-    """Claude's answer to the user's previous message, from the session log ("" without a log)."""
-    if not transcript:
-        return ""
-    try:
-        with open(transcript, "rb") as f:
-            f.seek(0, 2)
-            f.seek(max(0, f.tell() - max_bytes))
-            lines = f.read().decode("utf-8", errors="replace").splitlines()[1:]
-    except OSError:
-        return ""
-    turns: list[list[str]] = [[]]
-    for line in lines:
-        try:
-            ev = json.loads(line)
-        except ValueError:
-            continue
-        content = (ev.get("message") or {}).get("content")
-        if ev.get("type") == "user" and (isinstance(content, str) or any(
-                isinstance(b, dict) and b.get("type") == "text" for b in content or [])):
-            turns.append([])  # a typed message (tool results are also "user" events, without text)
-        elif ev.get("type") == "assistant":
-            turns[-1] += [b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text"]
-    if not turns[-1] and len(turns) > 1:
+def _answer_blocks(ev: dict) -> list[dict]:
+    if ev.get("type") != "assistant" or ev.get("isSidechain"):
+        return []
+    return [b for b in (ev.get("message") or {}).get("content") or [] if isinstance(b, dict)]
+
+
+def _user_messages(transcript: Path) -> list[str]:
+    return [t for ev in _log_events(transcript) if (t := typed_text(ev)) is not None]
+
+
+LOG_BYTES = 2_000_000  # end of the session log read per prompt: most real answers fit (claude-code.md)
+
+
+def assistant_text(transcript: Path | list[dict] | None, max_bytes: int = LOG_BYTES) -> str:
+    """Claude's recent replies in this session, to recognise the user pasting them back. `transcript`: the log, or
+    its events already read."""
+    events = transcript if isinstance(transcript, list) else _log_events(transcript, max_bytes)
+    return "\n".join(b.get("text", "") for ev in events for b in _answer_blocks(ev) if b.get("type") == "text")
+
+
+MAX_ACTIONS = 100_000  # characters of Claude's actions read per turn (commands, code it wrote)
+
+
+def _strings(x) -> list[str]:
+    if isinstance(x, str):
+        return [x]
+    if isinstance(x, dict):
+        return [s for v in x.values() for s in _strings(v)]
+    if isinstance(x, list):
+        return [s for v in x for s in _strings(v)]
+    return []
+
+
+def last_turn(transcript: Path | list[dict] | None, max_bytes: int = LOG_BYTES) -> tuple[str, str]:
+    """(Claude's text, Claude's actions) in its answer to the user's previous message, from the session log.
+    Actions are what it did: the inputs of its tool calls (commands run, code written, files edited). The answer
+    runs from one typed message to the next, whatever Claude Code logs in between. If the log already holds the new
+    message, the answer before it. ("", "") without a log. `transcript`: the log, or its events already read."""
+    turns: list[tuple[list[str], list[str]]] = [([], [])]
+    for ev in transcript if isinstance(transcript, list) else _log_events(transcript, max_bytes):
+        if typed_text(ev) is not None:
+            turns.append(([], []))
+        for b in _answer_blocks(ev):
+            if b.get("type") == "text":
+                turns[-1][0].append(b.get("text", ""))
+            elif b.get("type") == "tool_use":
+                turns[-1][1].extend(_strings(b.get("input")))
+    if not (turns[-1][0] or turns[-1][1]) and len(turns) > 1:
         turns.pop()
-    return "\n".join(turns[-1])
+    text, acts = turns[-1]
+    return "\n".join(text), "\n".join(acts)[:MAX_ACTIONS]
 
 
 def reply_words(text: str) -> set[str]:
@@ -285,13 +350,59 @@ def use_check(store: MemoryStore, note: str, prompt: str, reply_set: set[str]) -
     return used, True
 
 
-def judge_last(store: MemoryStore, state: "_State", reply: str) -> list[int]:
+def practised(store: MemoryStore, rule: str, text_words: set[str], action_words: set[str],
+              words: tuple[list[str], list[str]] | None = None) -> bool:
+    """Claude acted on a standing rule: most of what the rule wants (by rarity in Claude's replies) is in its
+    text or actions, at least part of it in what it did, and nothing the rule forbids is in what it did
+    ("never use print, use the logger": `logger.info` is practice, `print(` is not). A rule that only forbids
+    ("never use tabs") can't be seen being followed: doing nothing leaves no trace."""
+    import math
+    from dore.memory.rules import LIGHT_VERBS
+    if words is not None:  # the rule's situation and forbidden words, given when it was learned (`learn.judge`)
+        wanted, forbidden = words
+    else:
+        from dore.learn.grammar import rule_parts
+        wanted, forbidden = rule_parts(rule)
+    # Light verbs ("use", "run") say nothing about which rule it is: "always use pnpm" wants pnpm.
+    want = reply_words(" ".join(wanted)) - {w[:6] for w in LIGHT_VERBS}
+    if not want or (reply_words(" ".join(forbidden)) - want) & action_words:
+        return False
+    got = want & (text_words | action_words)
+    if not got & action_words:
+        return False
+    n, df = store.reply_counts(want)
+    idf = {w: math.log((n + 1) / (df.get(w, 0) + 1)) + 1 for w in want}
+    return sum(idf[w] for w in got) / sum(idf.values()) >= CLEAR_USE
+
+
+def practise_rules(store: MemoryStore, state: "_State", project: str, text_words: set[str], action_words: set[str]):
+    """Strengthen the standing rules Claude acted on in its last answer (once per rule per session): a habit grows
+    by being done, not by being shown (`memory.activation`). Reads only rule notes (indexed)."""
+    if not action_words or project is None:
+        return
+    done = set(state.d.get("rules_practised", []))
+    now = time.time()
+    for m in store.rule_notes(project):
+        # Only rules the user made rules (said in two sessions): doing a task looks like following a habit ("it
+        # should count pages" was "practised" by Claude implementing it, real replay), so practice keeps a rule
+        # alive but never makes one.
+        words = (json.loads(m.rule_when), json.loads(m.rule_not or "[]")) if m.rule_when else None
+        # A rule Haiku judged a lasting rule may be proven by practice; an old word-rule note only once proven.
+        if m.id not in done and (words or not on_trial(m)) and practised(store, m.content, text_words,
+                                                                           action_words, words):
+            store.db.execute("UPDATE memories SET uses = uses + 1, last_used = ? WHERE id=?", (now, m.id))
+            done.add(m.id)
+    store.db.commit()
+    state.d["rules_practised"] = sorted(done)
+
+
+def judge_last(store: MemoryStore, state: "_State", reply: str, actions: str = "", project: str | None = None) -> list[int]:
     """Check last prompt's shown notes against Claude's reply: used notes gain a use, unused trial notes
     count a try (archived after `ARCHIVE_TRIES`). Returns archived ids."""
     shown, prompt = state.d.get("last_shown", []), state.d.get("last_prompt", "")
-    if not reply:
+    if not reply and not actions:
         return []
-    key = message_key(reply)
+    key = message_key(reply + "\n" + actions[:2000])
     if state.d.get("judged") == key:  # one prompt handled twice (helper timeout + inline run)
         return []
     state.d["judged"] = key
@@ -303,9 +414,10 @@ def judge_last(store: MemoryStore, state: "_State", reply: str) -> list[int]:
         last_trial = set(state.d.get("last_trial", []))
         trial = [i for i in shown if i in last_trial and checks.get(i, (False, False))[1]]
         for i in used - set(trial):
-            store.db.execute("UPDATE memories SET uses = uses + 1 WHERE id=?", (i,))
+            store.db.execute("UPDATE memories SET uses = uses + 1, last_used = ? WHERE id=?", (time.time(), i))
         store.db.commit()
         gone = store.mark_tried(trial, used)
+    practise_rules(store, state, project, rset, reply_words(actions))
     store.count_reply(rset)
     return gone
 
@@ -402,6 +514,7 @@ def save_rule_cores(store: MemoryStore, text: str, project: str, session_ids: se
         else:  # said before only in another project: lasting for this user, kept in this project
             ids.append(store.add(core, kind="requirement", source=RULE_SOURCE, project=project,
                                  trust="verified" if any(m.id not in session_ids for m in same) else "unverified"))
+    mark_instructions(store, ids)
     return ids
 
 
@@ -416,7 +529,9 @@ def save_requirement(store: MemoryStore, text: str, project: str, session_ids: s
             and m.source != RULE_SOURCE]
     if same:
         return _seen_again(store, same[0], session_ids)
-    return store.add(text, kind="requirement", source="user", trust="unverified", project=project)
+    rid = store.add(text, kind="requirement", source="user", trust="unverified", project=project)
+    mark_instructions(store, [rid])
+    return rid
 
 
 def similar_fn(store: MemoryStore):
@@ -437,6 +552,7 @@ def save_facts(store: MemoryStore, facts: list[str], project: str, created: floa
         ids += store.add_many(group, kind="statement", source="user", trust="verified", project=scope,
                               supersede=True, keys=[topic_key(f) for f in group], created=created)
     store.mark_said_in(ids, project)
+    mark_instructions(store, ids)
     return ids
 
 
@@ -450,6 +566,14 @@ def learn_message(store: MemoryStore, msg: str, project: str, echo: str = "",
     seen = session_ids if session_ids is not None else set()
     facts = not_echoed(message_facts(msg, similar_fn(store)), echo)
     ids = save_facts(store, facts, project)
+    # Said again in the same session is the same moment, not lasting evidence: the repeat doesn't count
+    # (a note is proven only when said again in another session, `memory.on_trial`).
+    again = [i for i in ids if i in seen]
+    if again:
+        store.db.execute(f"UPDATE memories SET times_seen = MAX(1, times_seen - 1) WHERE id IN "
+                         f"({','.join('?' * len(again))})", again)
+        store.db.commit()
+    seen |= set(ids)
     episodes.add(store, not_echoed(episode_sentences(msg, facts), echo), project, session, judged=RULES_VERSION)
     req = not_echoed([requirement_text(msg)], echo)
     if req and req[0] and not ids and (dup := _handled_just_now(store, req[0], project)):
@@ -464,13 +588,34 @@ def learn_message(store: MemoryStore, msg: str, project: str, echo: str = "",
     return ids
 
 
+def queue_message(store: MemoryStore, msg: str, project: str, echo: str = "", session: str = "") -> list[int]:
+    """Haiku learner: keep the message's sentences in raw memory, where they wait for the next batch
+    (`integrations.learner`). Nothing is judged here: no model, ~0.1 ms. The same sentence again, once it became a
+    note, counts as said again at once."""
+    from dore.learn.consolidate import sentences
+    ids = episodes.add(store, not_echoed(sentences(msg), echo), project, session)
+    for eid in ids:
+        row = store.db.execute("SELECT note_id FROM episodes WHERE id=?", (eid,)).fetchone()
+        if row and row[0]:
+            store.said_again(row[0], time.time(), session)
+    store.db.commit()
+    return ids
+
+
 def save_session(store: MemoryStore, transcript: Path, project: str,
-                 learned: set[str] | None = None, session_ids: set[int] | None = None, session: str = "") -> list[int]:
+                 learned: set[str] | None = None, session_ids: set[int] | None = None, session: str = "",
+                 learn: str = "rules") -> list[int]:
     """Session end: store statements from messages the prompt hook didn't already handle
     (`learned` = their message_key), e.g. when the hook timed out."""
     learned = learned or set()
     session_ids = set(session_ids or ())
     echo = assistant_text(transcript, max_bytes=4_000_000)
+    if learn == "haiku":
+        for msg in _user_messages(transcript):
+            if message_key(msg) not in learned:
+                queue_message(store, msg, project, echo, session)
+        store.save(force=True)
+        return []
     ids = [i for msg in _user_messages(transcript) if message_key(msg) not in learned
            for i in learn_message(store, msg, project, echo, session_ids, session)]
     store.save(force=True)
@@ -518,11 +663,19 @@ def react(store: MemoryStore, prompt: str, state: _State) -> str:
     return "reask" if reask else "moved_on"
 
 
-def on_prompt(store: MemoryStore, prompt: str, project: str, state: _State, echo: str = "", reply: str = "") -> str:
+def on_prompt(store: MemoryStore, prompt: str, project: str, state: _State, echo: str = "", reply: str = "",
+              actions: str = "", learn: str = "rules") -> str:
     """Everything the prompt hook does, in order: judge the last notes, learn the user's new
     statements right away (so a correction counts in this session, not only at its end), then
     pick notes for this prompt. Returns the text to add ("" = nothing, 0 tokens)."""
-    state.d["archived"] = state.d.get("archived", []) + judge_last(store, state, reply)
+    state.d["archived"] = state.d.get("archived", []) + judge_last(store, state, reply, actions, project)
+    if learn == "haiku":  # learned later, in a batch: a correction is judged with the notes it corrects
+        queue_message(store, prompt, project, echo, state.session)
+        state.d.setdefault("handled", []).append(message_key(prompt))
+        text = prompt_context(store, prompt, project, state)
+        state.d["last_prompt"] = prompt[:2000]
+        store.save()
+        return text
     state.d["last_signal"] = react(store, prompt, state)
     session_ids = set(state.d.get("saved", []))
     new_ids = learn_message(store, prompt, project, echo, session_ids, state.session)
@@ -549,6 +702,25 @@ def open_store(cfg: Config) -> MemoryStore:
     return store
 
 
+def remark_instructions(store: MemoryStore, limit: int | None = None) -> int:
+    """Once per `RULE_FORM` version, notes saved before are re-marked by their form, `limit` at a time, oldest first
+    (while idle: `consolidate`; never on the prompt path, 3,000 notes took 4.2 s). Until then an old note is simply
+    not a session-start rule. Returns how many were marked (0 = done)."""
+    if store.meta("rule_form") == RULE_FORM:
+        return 0
+    upto = int(store.meta("rule_form_upto") or 0)
+    ids = [r[0] for r in store.db.execute(
+        "SELECT id FROM memories WHERE archived=0 AND replaced_by IS NULL AND id > ? ORDER BY id" +
+        (" LIMIT ?" if limit else ""), (upto, limit) if limit else (upto,))]
+    if not ids:
+        store.meta("rule_form", RULE_FORM)
+        store.meta("rule_form_upto", "0")
+        return 0
+    mark_instructions(store, ids)
+    store.meta("rule_form_upto", str(ids[-1]))
+    return len(ids)
+
+
 def run_event(store: MemoryStore, cfg: Config, event: str, data: dict) -> str:
     """Handle one hook event; returns the text to print ("" = add nothing)."""
     project = resolve_project(store, data.get("cwd"), data.get("project_dir"))
@@ -556,16 +728,18 @@ def run_event(store: MemoryStore, cfg: Config, event: str, data: dict) -> str:
         state = _State(cfg.data_dir, str(data.get("session_id", "")))
         tp = data.get("transcript_path")
         log = Path(tp) if tp else None
-        text = on_prompt(store, str(data.get("prompt", "")), project, state, echo=assistant_text(log),
-                         reply=last_reply(log))
+        events = _log_events(log, LOG_BYTES)  # read once for both
+        reply, actions = last_turn(events)
+        text = on_prompt(store, str(data.get("prompt", "")), project, state, echo=assistant_text(events),
+                         reply=reply, actions=actions, learn=getattr(cfg, "learner", "rules"))
         state.save()
         return text
     if event == "end" and data.get("transcript_path"):
         state = _State(cfg.data_dir, str(data.get("session_id", "")))
         save_session(store, Path(data["transcript_path"]), project,
                      set(state.d.get("learned", [])) | set(state.d.get("handled", [])), set(state.d.get("saved", [])),
-                     str(data.get("session_id", "")))
-        consolidate(store)
+                     str(data.get("session_id", "")), learn=getattr(cfg, "learner", "rules"))
+        consolidate(store, learn=getattr(cfg, "learner", "rules"), wait=True)
         update.check(cfg.data_dir)  # at most once a day, 3 s timeout, update runs detached; SessionEnd allows 60 s
     return ""
 
@@ -577,13 +751,22 @@ def _known(store: MemoryStore, fact: str) -> bool:
                             "LIMIT 1", (fact,)).fetchone() is not None
 
 
-def consolidate(store: MemoryStore, limit: int = 64) -> dict:
+def consolidate(store: MemoryStore, limit: int = 64, learn: str = "rules", wait: bool = False) -> dict:
     """Work on raw memory while the user is away (warm helper idle, SessionEnd), like sleep: give new
     episodes a vector so a later question can recall them, and judge again those not judged with
     today's learning rules, so a fixed rule also learns what was said before. A fact learned this way
     keeps the date it was said (an older date never replaces a newer note). Small batches: call again
-    until it returns zeros. No Claude tokens."""
+    until it returns zeros. No Claude tokens. With the Haiku learner: a batch when one is due (`integrations.learner`),
+    in a thread unless `wait`; the word rules don't run."""
+    if learn == "haiku":
+        from dore.integrations import learner
+        if wait:
+            learner.run_once(store)
+        else:
+            learner.run_in_background(store)
+        return {}
     embedded = episodes.embed_pending(store, limit)
+    remarked = remark_instructions(store, limit)
     learned = 0
     todo = episodes.to_judge(store, RULES_VERSION, limit)
     for eid, content, project, created in todo:
@@ -593,7 +776,7 @@ def consolidate(store: MemoryStore, limit: int = 64) -> dict:
                              ids[0] if ids else None)
         learned += bool(ids)
     store.save()
-    return {"embedded": embedded, "judged": len(todo), "learned": learned}
+    return {"embedded": embedded, "judged": len(todo), "learned": learned, "remarked": remarked}
 
 
 def main(argv: list[str] | None = None):

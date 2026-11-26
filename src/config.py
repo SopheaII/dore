@@ -23,6 +23,18 @@ class Config:
     index_save_interval: float = 120.0  # seconds between index-file writes (rebuilt from SQLite after a crash)
 
     @property
+    def learner(self) -> str:
+        """How notes are learned: "haiku" (batched Haiku consolidation through the user's own `claude` command, only
+        when the user turned it on: `DORE_LEARN=haiku` or the file `data/learner`) or "rules" (word rules, no model)."""
+        v = os.environ.get("DORE_LEARN", "")
+        if not v:
+            try:
+                v = (self.data_dir / "learner").read_text().strip()
+            except OSError:
+                v = ""
+        return "haiku" if v == "haiku" else "rules"
+
+    @property
     def db_path(self) -> Path:
         return self.data_dir / "memory.db"
 

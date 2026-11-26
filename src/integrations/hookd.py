@@ -88,7 +88,7 @@ def serve(cfg: Config, idle_exit: float = IDLE_EXIT, store_factory=None, idle_wo
                     update.check_in_background(cfg.data_dir)
                 if work_left:  # the user is away: consolidate one small batch, then listen again
                     try:
-                        done = consolidate(store)
+                        done = consolidate(store, learn=getattr(cfg, "learner", "rules"))
                         work_left = any(done.values())
                         srv.settimeout(0.05 if work_left else min(idle_exit, idle_work))
                     except Exception:  # never let background work stop the helper
@@ -128,6 +128,8 @@ def serve(cfg: Config, idle_exit: float = IDLE_EXIT, store_factory=None, idle_wo
     finally:
         srv.close()
         sock_path.unlink(missing_ok=True)
+        from dore.integrations import learner
+        learner.wait()  # a Haiku batch in its thread writes to the store: let it finish first
         store.close()
         lock.close()
 
