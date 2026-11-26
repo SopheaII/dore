@@ -6,7 +6,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Claude_Code-plugin_0.5.0-d97757?style=flat-square" alt="Claude Code plugin 0.5.0" />
+  <img src="https://img.shields.io/badge/Claude_Code-plugin_0.5.1-d97757?style=flat-square" alt="Claude Code plugin 0.5.1" />
+  <a href="https://www.npmjs.com/package/dore-memory"><img src="https://img.shields.io/npm/v/dore-memory?style=flat-square&logo=npm" alt="npm" /></a>
   <img src="https://img.shields.io/badge/python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+" />
   <img src="https://img.shields.io/badge/data-stays_local-2ea44f?style=flat-square" alt="Data stays local" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license" />
@@ -71,7 +72,21 @@ Run them yourself (no AI model needed, a few seconds each):
 
 ## Install
 
+Needs Node 18+, [Claude Code](https://claude.com/claude-code), and [uv](https://docs.astral.sh/uv/) or Python 3.11+.
+
 ```bash
+npx dore-memory install     # set up dore + the Claude Code plugin
+npx dore-memory status      # check it
+npx dore-memory update      # get the latest version
+npx dore-memory uninstall   # remove it (your memory is kept)
+```
+
+dore lives in `~/.dore-memory` (change it with `DORE_HOME`).
+
+### From source
+
+```bash
+git clone https://github.com/SopheaII/dore-memory.git ~/Documents/dore
 cd ~/Documents/dore                     # or set DORE_HOME to where it is
 uv venv .venv --python 3.12
 uv pip install --python .venv/bin/python -e ".[dev]"
