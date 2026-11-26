@@ -20,35 +20,32 @@ npx dore-memory install     # sets up dore and its Claude Code plugin, then open
 
 ## Why dore
 
-**Problem:** Claude Code forgets everything when you start a new session, so you explain the same things again and again.
+Claude Code forgets everything between sessions, so you explain the same things again and again. dore fixes that:
 
-**Solution:** dore gives Claude a memory that works like yours:
-
-- 👂 **It listens.** When you tell Claude a fact ("our staging server uses port 8443"), dore saves it.
-  You don't need to say "remember this".
-- 💡 **It reminds.** When you ask about it later, even in a new session, dore hands Claude that note before it answers.
-- 🔄 **It updates.** When a fact changes ("the staging port is now 9443"), the new fact replaces the old one.
-- 🗂️ **It keeps things in place.** Facts about you (your name, how you like to work) are used in every project.
-  Facts about one project (its port, its database) stay in that project.
+- 👂 **It listens.** Tell Claude a fact ("our staging server uses port 8443") — no "remember this" needed.
+- 💡 **It reminds.** Ask about it later, even in a new session, and dore puts that note in front of Claude first.
+- 🔄 **It updates.** A new value ("the port is now 9443") replaces the old one.
+- 🗂️ **It keeps things in place.** Facts about you follow you into every project; facts about one project stay there.
 
 ## How is it different from other memory tools?
 
-Most memory tools let the AI manage the memory: the AI decides what to save, and then either loads the whole
-memory into every message or has to search it. That costs tokens, and if the AI forgets to save, the fact is lost.
+Most memory tools ask the AI to keep the notebook: it decides what to save, then searches it or loads all of it
+into every message. You pay tokens for both, and the fact is lost when the model forgets to write it down.
 
-dore manages the memory itself, outside the AI:
+**dore keeps that work outside the model:** local rules in a hook decide what to save in ~13 ms for **0 Claude
+tokens**, and Claude only reads the few notes that match your message — nothing when nothing matches.
 
 | | Usual memory tools | dore |
 |---|---|---|
-| Who decides what to save | The AI (costs tokens, and it can forget) | dore, from what you type: local rules (free), or, if you turn it on, Haiku in one small batch a day |
-| What Claude receives | The whole memory, or what the AI searched for | Only the notes that match your message (usually none), plus your standing rules once per session |
-| When a fact changes | Old and new notes may both stay | The old note is replaced |
-| When notes disagree | No rule | What you said wins over what the AI guessed |
-| Where it runs | Sometimes a cloud service | On your computer (with Haiku learning on, the sentences you type also go to Haiku, after each session) |
+| Who decides what to save | The AI (costs tokens, can forget) | Local rules, free (or optional Haiku) |
+| What Claude receives | Everything, or what the AI searched | Only matching notes (plus rules once a session) |
+| Conflicting notes | Old and new may both stay | New beats old; you beat the AI |
+| Where facts belong | No rule | You vs. project, kept apart |
+| Where it runs | Sometimes a cloud service | On your computer; notes stay local |
 
-Learning adds a few ms to each message. By default it costs 0 Claude tokens (local word rules). If you say yes at
-install, dore learns better with Claude Haiku instead: after each session, in the background, one small batch
-(about 5-10k Haiku tokens a day on real use) sorts what you typed into facts, rules and noise.
+Learning adds a few ms per message and costs 0 Claude tokens by default. Opt into Haiku and one small batch after
+each session sends what you typed (not code or Claude's replies) to Haiku — about 5-10k tokens a day, an estimate —
+to sort it into facts, rules and noise.
 
 ## See it work in Claude Code
 
