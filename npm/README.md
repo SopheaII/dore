@@ -72,16 +72,27 @@ Run them yourself (no AI model needed, a few seconds each):
 
 ## Install
 
+### With npm (recommended)
+
 Needs Node 18+, [Claude Code](https://claude.com/claude-code), and [uv](https://docs.astral.sh/uv/) or Python 3.11+.
 
 ```bash
-npx dore-memory install     # set up dore + the Claude Code plugin
-npx dore-memory status      # check it
-npx dore-memory update      # get the latest version
-npx dore-memory uninstall   # remove it (your memory is kept)
+npx dore-memory install
 ```
 
-dore lives in `~/.dore-memory` (change it with `DORE_HOME`).
+Then start a new Claude Code session and talk as usual. That's it.
+
+| Command | What it does |
+|---|---|
+| `npx dore-memory install` | Sets up dore and turns on its Claude Code plugin |
+| `npx dore-memory status` | Shows where dore is and whether the plugin is on |
+| `npx dore-memory update` | Gets the latest dore |
+| `npx dore-memory uninstall` | Removes dore and the plugin (your memory is kept) |
+
+**What `install` does:** puts dore (Python) in `~/.dore-memory`, then runs
+`claude plugin marketplace add SopheaII/dore-memory` and `claude plugin install dore-memory@dore-memory`.
+Your memory is saved in `~/.dore-memory/data`. Change the folder with `DORE_HOME`.
+The first install downloads about 200 MB (Python packages and a small search model).
 
 ### From source
 
@@ -94,7 +105,18 @@ claude plugin marketplace add ~/Documents/dore
 claude plugin install dore-memory@dore-memory
 ```
 
-Then use Claude Code as usual. Works on macOS and Linux, no GPU. It also works with opencode and other MCP agents.
+Works on macOS and Linux, no GPU. It also works with opencode and other MCP agents.
+
+## How it works
+
+1. **You type a message** in Claude Code. dore's hook reads it before Claude does.
+2. **If it tells a fact** ("our staging port is 8443"), dore saves it as a note on your machine.
+   Questions and requests are not saved.
+3. **If it asks about something dore knows**, the hook adds the matching notes (a few lines) to your
+   message, so Claude can answer. If nothing matches, nothing is added (0 tokens).
+4. **If a fact changes** ("the port is now 9443"), the newer note replaces the old one.
+
+Learning runs locally with small models, so it costs no Claude tokens and nothing leaves your machine.
 
 ## Limits
 
