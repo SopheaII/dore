@@ -13,6 +13,10 @@
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license" />
 </p>
 
+```bash
+npx dore-memory install     # sets up dore and its Claude Code plugin, then open a new Claude Code session
+```
+
 ## Why dore
 
 **Problem:** every new Claude Code session forgets what you told it, so you repeat yourself.
@@ -89,8 +93,7 @@ Then start a new Claude Code session and talk as usual. That's it.
 | `npx dore-memory update` | Gets the latest dore |
 | `npx dore-memory uninstall` | Removes dore and the plugin (your memory is kept) |
 
-**What `install` does:** puts dore (Python) in `~/.dore-memory`, then runs
-`claude plugin marketplace add SopheaII/dore-memory` and `claude plugin install dore-memory@dore-memory`.
+**What `install` does:** sets up dore in `~/.dore-memory` and turns on its Claude Code plugin.
 Your memory is saved in `~/.dore-memory/data`. Change the folder with `DORE_HOME`.
 The first install downloads about 200 MB (Python packages and a small search model).
 
