@@ -150,7 +150,7 @@ DEV = [
     ("Status · paid · due soon", "", None, "ui"),
     # standing "don't" instructions are lasting preferences (from the real repeat test, own wording)
     ("please don't reformat existing code when you edit a file", "reformat", None, "polite"),
-    ("i don't want the bot to send me minor alerts", "minor alerts", None, "non-native"),
+    ("i don't want the bot to send me debug logs", "debug logs", None, "non-native"),
     ("never commit straight to main", "main", None, "terse"),
     ("do not touch the payment module", "payment module", None, "request"),
     ("i don't want to change the code right now", "", None, "progress"),
@@ -173,7 +173,7 @@ DEV = [
     ("we should look into", "", None, "progress"),
     ("this is what i was thinking about", "", None, "non-native"),
     # ambiguous: not scored
-    ("Don't run the local model, just use Claude Code now.", None, None, "ambiguous"),
+    ("Don't run the slow e2e suite, just use the unit tests now.", None, None, "ambiguous"),
 ]
 
 HELDOUT = [

@@ -71,7 +71,7 @@ MAX_FACT_WORDS = 20  # lasting facts are short (longest in the test sets: 14); l
 SUBORDINATE = {"because", "since", "after", "before", "when", "whenever", "while", "if", "unless", "although",
                "though", "until", "once", "so", "cause", "coz", "cuz", "bc"}
 # Standing "don't" instructions are lasting preferences, polite or not ("please don't reformat existing
-# code", "i don't want minor alerts", "do not touch the payment module"): found as repeated in real use.
+# code", "i don't want debug logs in commits", "do not touch the payment module"): found as repeated in real use.
 STANDING_DONT = re.compile(r"^(?:(?:please|pls|plz|kindly)\s+)?(?:(?:i|we)\s+(?:really\s+)?(?:don'?t|do not|never)\s+"
                            r"(?:want|need|like)\b|(?:don'?t|dont|do not|never|no need to|stop)\s+\w+)", re.I)
 # Tied to the moment: not a lasting rule ("I don't want to change the code right now").
@@ -318,7 +318,7 @@ def _inside_word(doc, start: int, end: int) -> bool:
 
 def complete(text: str) -> bool:
     """A note reads as a whole statement: brackets and quotes closed, and it doesn't stop on a word
-    that needs a continuation ("My purpose is that", "I don't need clipper i", "... and"). Decided
+    that needs a continuation ("My purpose is that", "I don't need the parser i", "... and"). Decided
     by word class, so it holds for any wording. True without a parser."""
     if text.count("(") != text.count(")") or text.count('"') % 2 or text.count("“") != text.count("”"):
         return False
@@ -397,7 +397,7 @@ def asks(sentence: str) -> bool:
 def tells(sentence: str) -> bool:
     """The sentence tells something rather than asks for something: its main verb has a subject, it
     has no politeness marker (a request, misspelt too) and asks nothing. Used for raw memory, which
-    keeps every sentence: on the real replay, recalled requests ("ok please build release for me")
+    keeps every sentence: on the real replay, recalled requests ("ok please build it again")
     were nearly all noise. False without a parser."""
     parser = nlp()
     if parser is None:

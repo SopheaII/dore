@@ -1,3 +1,4 @@
+from pathlib import Path
 import json
 
 from dore.memory.embed import HashEmbedder
@@ -129,6 +130,20 @@ def test_personal_wish_is_not_a_rule_but_personal_preference_is(tmp_path):
 
 
 def test_warm_helper_answers_and_client_falls_back(tmp_path):
+    import os
+    import shutil
+    import tempfile
+    import threading
+    import time
+    # A Unix socket path must be short (~104 characters on macOS); pytest's tmp_path on macOS is longer.
+    tmp_path = Path(tempfile.mkdtemp(prefix="dore-", dir="/tmp" if os.path.isdir("/tmp") else None))
+    try:
+        _warm_helper_check(tmp_path)
+    finally:
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def _warm_helper_check(tmp_path):
     import threading
     import time
     from dore.config import Config

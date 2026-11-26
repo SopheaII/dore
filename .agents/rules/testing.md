@@ -6,7 +6,7 @@ Checks from cheapest to dearest, baselines, conventions.
 
 | Check | Command | Cost | When |
 |---|---|---|---|
-| Unit tests | `.venv/bin/pytest -q` | ~6 s, no model | every change (the warm-helper test needs Linux) |
+| Unit tests | `.venv/bin/pytest -q` | ~6 s, no model | every change (all pass on macOS and Linux) |
 | Conversation check | `.venv/bin/python -m dore.eval.conversation` | ~10 s, embedder only | any memory, learning or hook change |
 | Learning check | `.venv/bin/python -m dore.eval.learning [--real] [--styles]` | ~10 s, embedder + parser | any change to what is learned, replaced or retrieved |
 | Stream check | `.venv/bin/python -m dore.eval.stream` (= `bench stream`); `… stream seeds 5` for varied wording | ~7 s per seed | any learning, scope or hook change |

@@ -34,7 +34,7 @@ def recheck(store: MemoryStore, apply: bool = False) -> list[tuple[int, str]]:
         f"SELECT id, content FROM memories WHERE {SEARCHABLE_SQL} AND source='user' AND kind='statement' "
         "AND protected=0 AND replaced_by IS NULL ORDER BY id").fetchall()
     # A standing "don't / never / no need" instruction may be a lasting rule even when today's rules
-    # read it as a request ("Don't run the local model, just use Claude Code"): never archived here.
+    # read it as a request ("Don't run the slow e2e suite, just use the unit tests"): never archived here.
     out = [(i, c) for i, c in rows if not _kept(c) and not STANDING_NO.match(c)]
     if apply:
         for i, _ in out:

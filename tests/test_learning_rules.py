@@ -178,8 +178,8 @@ def test_long_instruction_kept_as_hidden_requirement(tmp_path):
 def test_broken_fragments_are_not_notes():
     from dore.learn.grammar import complete
     from dore.learn.statements import message_facts
-    for broken in ["My purpose is that", "I don't need the clipper i", "The config lives in (the repo",
-                   "Dore has memvid not"]:
+    for broken in ["My purpose is that", "I don't need the parser i", "The config lives in (the repo",
+                   "The app has caching not"]:
         assert not complete(broken), broken
     for whole in ["We turn the cache off", "You can't get the money back", "The API runs on port 8080"]:
         assert complete(whole), whole
@@ -224,7 +224,7 @@ def test_reports_and_questions_are_not_rules():
     assert rule_cores("thanks, i dont want to change it, the old one was fine for the team") == []
     # Real rules, any subject that says how things should be, stay.
     assert rule_cores("we do not deploy on fridays because nobody is around to fix the release")
-    assert rule_cores("the bot should never send me minor alerts at night, only critical ones")
+    assert rule_cores("the bot should never send me debug logs at night, only critical ones")
     assert rule_cores("please never commit secrets to it, we had a leak last year") == ["Never commit secrets"]
     assert rule_cores("never rename the columns, it breaks the reports for finance") == ["Never rename the columns"]
     assert rule_cores("i dont want to touch it seem fine to me if you use something else") == []

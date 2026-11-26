@@ -1,7 +1,7 @@
 """Raw memory of what the user said (like the hippocampus): nothing the user types is lost.
 
 The learning rules decide at once which sentences become notes, and they miss some lasting facts
-("owasp top 10 is the most top security that i care most about" was dropped as a broken piece).
+(a fact shaped like "rust is the language that i care most about" was dropped as a broken piece).
 A person does not decide perfectly in the moment either: a quick trace of everything is kept, and
 later cues, repetition and replay decide what lasts. So every typed sentence that is not a note is
 kept here as an episode:
@@ -73,7 +73,7 @@ def _matrix(store):
 def recall(store, vec: np.ndarray, project: str, session: str = "", exclude=(), min_similarity: float = 0.7,
            k: int = 1) -> list[tuple[int, str, float, float]]:
     """Episodes from earlier sessions close to `vec` (a question's vector) that tell something (not
-    requests: on the real replay recalled requests were nearly all noise, "please build release for me"),
+    requests: on the real replay recalled requests were nearly all noise, "please build it again"),
     in this project or about the user, not yet learned as notes. Returns (id, content, created, similarity),
     best first."""
     with store._lock:

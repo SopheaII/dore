@@ -51,7 +51,7 @@ def _rules_version() -> str:
 RULES_VERSION = _rules_version()
 # A question may recall a raw sentence from an earlier session that tells something (not a request).
 # Off (> 1): on the real replay (1,036 prompts) the bar 0.75 showed one on 11 questions, ~3 useful (an alert
-# preference, a feature design) and ~8 noise ("so what the fix from current code"); 0.80 showed 1, noise.
+# preference, a feature design) and ~8 noise (old requests); 0.80 showed 1, noise.
 # The embedder can't tell a lasting sentence from chatter (memory-learning.md). Raw memory still feeds
 # `consolidate`, and the next step (said again in another session) needs no bar on similarity alone.
 EPISODE_STRONG = 1.01
@@ -152,7 +152,7 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
         cands.append((m.id, _line(m.id, m.content, label, m.created,
                                   limit=REQ_MAX_CHARS + 1 if m.kind == "requirement" else MAX_CHARS), True))
     # Raw memory: a question that strongly matches something the user said in an earlier session that no
-    # rule kept as a note ("owasp top 10 is the security i care most about"). Same query vector, no new embedding.
+    # rule kept as a note ("rust is the language i care most about"). Same query vector, no new embedding.
     vec = getattr(store, "last_query_vector", None)
     if vec is not None and EPISODE_STRONG <= 1 and _asks(prompt):
         said = set(state.d.get("episodes_shown", []))
