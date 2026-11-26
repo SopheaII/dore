@@ -212,7 +212,7 @@ Measured 2026-11-25 (`dore.eval.learning`, `dore.eval.stream seeds 5`):
   questions only with 12+ words, no code/logs, nothing from messages over 3,000 chars, at most 20 per message, not
   Claude's text pasted back). An exact repeat of a sentence that became a note counts at once (`said_again`, once per
   session, `note_sessions`).
-- A batch (30 sentences, or the oldest a day old) goes to Haiku in one call (`learn.judge`), each with up to 3 notes
+- A batch (30 sentences, the oldest a day old, or a session over) goes to Haiku in one call (`learn.judge`), each with up to 3 notes
   >= 0.6 similar. Verdicts: skip / fact / rule (with situation and forbidden words for practice) / same #id or @line /
   update #id. Checks: ids only from that line's shortlist; every name and number in a note must be in the sentence
   (`grounded`); an update hides the old note only when a second focused question ("can both be true?") says no

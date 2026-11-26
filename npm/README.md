@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Memory for Claude Code. Say it once, it remembers in every new session.</strong><br/>
-  Runs on your laptop · your notes never leave your machine · optional Haiku learning, about once a day
+  Runs on your laptop · your notes never leave your machine · optional Haiku learning between sessions
 </p>
 
 <p align="center">
@@ -47,7 +47,7 @@ dore manages the memory itself, outside the AI:
 | Where it runs | Sometimes a cloud service | On your computer (with Haiku learning on, the sentences you type also go to Haiku once a day) |
 
 Learning adds a few ms to each message. By default it costs 0 Claude tokens (local word rules). If you say yes at
-install, dore learns better with Claude Haiku instead: about once a day, in the background, one small batch
+install, dore learns better with Claude Haiku instead: after each session, in the background, one small batch
 (about 5-10k Haiku tokens a day on real use) sorts what you typed into facts, rules and noise.
 
 ## See it work in Claude Code
@@ -151,7 +151,7 @@ It also works with opencode and other MCP agents.
    message matches them.
 
 With Haiku learning on, steps 2 and 4 happen later: every sentence you type is kept on your machine at once, and
-about once a day dore's background helper sends the waiting ones (not code, logs, pastes or Claude's replies) to
+after each session dore's background helper sends the waiting ones (not code, logs, pastes or Claude's replies) to
 Haiku through your own `claude` command. Haiku says which are lasting facts or rules, which repeat or update an
 existing note, and which are noise. Nothing is deleted; an old note is hidden only when a second check agrees
 it is out of date. Offline or at your plan's limit, the sentences wait and are tried again later.

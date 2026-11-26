@@ -31,8 +31,8 @@ Measured 2026-11-24/25; keep these when changing the plugin.
 - `integrations/bridge.py` (opencode, other editors) uses the same `on_prompt`; fix behaviour in `integrations/hooks.py` (message rules in `learn/statements.py`), not twice.
 - Measuring real Claude Code token use: claude.ai connectors (Notion, Claude Docs) connect in the background and are only counted once connected, so compare runs with the same connector state (`--strict-mcp-config` also blocks plugin MCP servers). Real Claude Code test runs write auto-memory under `~/.claude/projects/<cwd>/`; delete the folders made for scratch directories.
 
-- Haiku learner (`integrations.learner`, opt-in): one `claude -p --model haiku` call per batch (30 sentences, or a
-  day old) from the warm helper's idle loop in a thread (the helper keeps answering prompts; it waits for the batch
+- Haiku learner (`integrations.learner`, opt-in): one `claude -p --model haiku` call per batch (30 sentences, a day old, or its session over: SessionEnd
+  or a newer session started, so the next session knows it; ~4.8 calls a day on the real history, estimate) from the warm helper's idle loop in a thread (the helper keeps answering prompts; it waits for the batch
   before closing), or at SessionEnd. Flags: `--effort low`, thinking off, `disableAllHooks` (any installed dore
   would otherwise learn the batch: it did, 132 junk notes, archived), no tools, no MCP, no saved session, an empty
   folder outside every project. Measured: ~1.3-1.7k tokens in, 20-700 out, 3-5 s per call; 76 calls / ~226k tokens

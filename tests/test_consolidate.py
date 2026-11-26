@@ -187,3 +187,16 @@ def test_haiku_runs_with_every_hook_off_and_no_tools():
     settings = json.loads(CLI_FLAGS[CLI_FLAGS.index("--settings") + 1])
     assert settings["disableAllHooks"] is True  # any installed dore (old ones too) must not learn its prompt
     assert CLI_FLAGS[CLI_FLAGS.index("--tools") + 1] == "" and "--strict-mcp-config" in CLI_FLAGS
+
+
+def test_what_was_said_in_one_session_is_learned_before_the_next(tmp_path, monkeypatch):
+    from dore.integrations import hooks, learner
+    s = store(tmp_path)
+    hooks.on_prompt(s, "the staging api runs on port 8443", "shop", hooks._State(tmp_path, "one"), learn="haiku")
+    assert not learner.due(s)  # the session is still going
+    assert learner.due(s, ended=True)  # SessionEnd
+    hooks.on_prompt(s, "hello again friend", "shop", hooks._State(tmp_path, "two"), learn="haiku")
+    assert learner.due(s)  # a newer session started: the first one is over (the terminal may have been closed)
+    monkeypatch.setattr(learner, "ClaudeCLI", lambda: Fake("1 fact project: The staging API runs on port 8443."))
+    hooks.consolidate(s, learn="haiku", wait=True)
+    assert "8443" in hooks.prompt_context(s, "what port is staging on?", "shop", hooks._State(tmp_path, "three"))

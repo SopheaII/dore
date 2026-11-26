@@ -32,7 +32,9 @@ def _state(store) -> dict:
         return {}
 
 
-def due(store, now: float | None = None) -> bool:
+def due(store, now: float | None = None, ended: bool = False) -> bool:
+    """A batch is due when full, when its oldest sentence has waited a day, or when a session the sentences come from
+    is over (`ended`: SessionEnd; or a newer session has started), so what was said is known by the next session."""
     now = now or time.time()
     st = _state(store)
     if now < st.get("next_try", 0) or (st.get("day") == time.strftime("%Y-%m-%d")
@@ -40,16 +42,19 @@ def due(store, now: float | None = None) -> bool:
         return False
     with store._lock:
         n, oldest = store.db.execute("SELECT count(*), min(created) FROM episodes WHERE judged=''").fetchone()
-    return n >= DUE_SENTENCES or (n > 0 and now - (oldest or now) >= DUE_AGE)
+        over = n > 0 and store.db.execute(
+            "SELECT 1 FROM episodes WHERE judged='' AND session != (SELECT session FROM episodes ORDER BY id DESC "
+            "LIMIT 1) LIMIT 1").fetchone() is not None
+    return n >= DUE_SENTENCES or (n > 0 and (ended or over or now - (oldest or now) >= DUE_AGE))
 
 
-def run_once(store, ask=None) -> dict | None:
+def run_once(store, ask=None, ended: bool = False) -> dict | None:
     """Judge one batch if one is due and none is running. Returns the batch's stats, or None. A failed call leaves
     the sentences queued and sets when to try again."""
     if not _RUNNING.acquire(blocking=False):
         return None
     try:
-        if not due(store):
+        if not due(store, ended=ended):
             return None
         rows = queued(store)
         batch = [Said(c, p, s, t, id=i) for i, c, p, s, t in rows]

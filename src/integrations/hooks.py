@@ -760,8 +760,8 @@ def consolidate(store: MemoryStore, limit: int = 64, learn: str = "rules", wait:
     in a thread unless `wait`; the word rules don't run."""
     if learn == "haiku":
         from dore.integrations import learner
-        if wait:
-            learner.run_once(store)
+        if wait:  # SessionEnd: this session is over
+            learner.run_once(store, ended=True)
         else:
             learner.run_in_background(store)
         return {}
