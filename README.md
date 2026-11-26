@@ -26,8 +26,17 @@ dore listens to what you type and remembers the important parts.
 
 - **Nothing to learn:** just talk to Claude Code as usual.
 - **Stays up to date:** when you say something new, it replaces the old note.
-- **Cheap and fast:** learning costs 0 Claude tokens. Most prompts get nothing added (0 tokens).
-  Each prompt takes about 13 ms.
+- **Shared where it helps:** facts about you reach every project; a project's facts stay in it.
+
+## Why dore
+
+- 🪶 **Doesn't burn your tokens.** Learning runs on your laptop, so it costs 0 Claude tokens. dore adds a note
+  only when it matches your prompt: most prompts get nothing, and on average it adds about 6 tokens.
+  No memory tools sit in Claude's prompt (an MCP memory tool costs tokens on every request).
+- ⚡ **Fast.** About 13 ms per prompt, even with months of memory.
+- 🧠 **Learns over time.** Every fact, rule and change you mention becomes a dated note. Newer replaces older,
+  so memory gets better the more you use it, with no model training.
+- 🔒 **Private.** Everything stays in one file on your machine.
 
 ## See it work in Claude Code
 
