@@ -12,31 +12,16 @@
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license" />
 </p>
 
-## The problem
-
-Every new Claude Code session forgets what you told it before.
-
-- You repeat the same things: your server port, your database, "don't reformat my code".
-- When something changes, old information can come back.
-- Writing it all into `CLAUDE.md` by hand is extra work.
-
-## The solution
-
-dore listens to what you type and remembers the important parts.
-
-- **Nothing to learn:** just talk to Claude Code as usual.
-- **Stays up to date:** when you say something new, it replaces the old note.
-- **Shared where it helps:** facts about you reach every project; a project's facts stay in it.
-
 ## Why dore
 
-- 🪶 **Doesn't burn your tokens.** Learning runs on your laptop, so it costs 0 Claude tokens. dore adds a note
-  only when it matches your prompt: most prompts get nothing, and on average it adds about 6 tokens.
-  No memory tools sit in Claude's prompt (an MCP memory tool costs tokens on every request).
-- ⚡ **Fast.** About 13 ms per prompt, even with months of memory.
-- 🧠 **Learns over time.** Every fact, rule and change you mention becomes a dated note. Newer replaces older,
-  so memory gets better the more you use it, with no model training.
-- 🔒 **Private.** Everything stays in one file on your machine.
+**Problem:** every new Claude Code session forgets what you told it, so you repeat yourself.
+
+**Solution:** dore remembers what you say, just by talking as usual.
+
+- 🪶 **Saves tokens:** learning costs 0 Claude tokens; most prompts get nothing added.
+- 🧠 **Learns over time:** newer facts replace older ones, with no model training.
+- 🗂️ **Shared across projects:** facts about you go everywhere; project facts stay put.
+- ⚡ **Fast and private:** about 13 ms per prompt; everything stays on your machine.
 
 ## See it work in Claude Code
 
