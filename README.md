@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Claude_Code-plugin_0.5.1-d97757?style=flat-square" alt="Claude Code plugin 0.5.1" />
+  <img src="https://img.shields.io/badge/Claude_Code-plugin_0.6.0-d97757?style=flat-square" alt="Claude Code plugin 0.6.0" />
   <a href="https://github.com/SopheaII/dore-memory/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/SopheaII/dore-memory/ci.yml?branch=master&style=flat-square&label=CI" alt="CI" /></a>
   <a href="https://www.npmjs.com/package/dore-memory"><img src="https://img.shields.io/npm/v/dore-memory?style=flat-square&logo=npm" alt="npm" /></a>
   <img src="https://img.shields.io/badge/python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+" />
@@ -20,19 +20,37 @@ npx dore-memory install     # sets up dore and its Claude Code plugin, then open
 
 ## Why dore
 
-**Problem:** every new Claude Code session forgets what you told it, so you repeat yourself.
+**Problem:** Claude Code forgets everything when you start a new session, so you explain the same things again and again.
 
-**Solution:** dore remembers what you say, just by talking as usual.
+**Solution:** dore gives Claude a memory that works like yours:
 
-- 🪶 **Saves tokens:** learning costs 0 Claude tokens; most prompts get nothing added.
-- 🧠 **Learns over time:** newer facts replace older ones, with no model training.
-- 🗂️ **Shared across projects:** facts about you go everywhere; project facts stay put.
-- ⚡ **Fast and private:** about 13 ms per prompt; everything stays on your machine.
+- 👂 **It listens.** When you tell Claude a fact ("our staging server uses port 8443"), dore saves it.
+  You don't need to say "remember this".
+- 💡 **It reminds.** When you ask about it later, even in a new session, dore hands Claude that note before it answers.
+- 🔄 **It updates.** When a fact changes ("the staging port is now 9443"), the new fact replaces the old one.
+- 🗂️ **It keeps things in place.** Facts about you (your name, how you like to work) are used in every project.
+  Facts about one project (its port, its database) stay in that project.
+
+## How is it different from other memory tools?
+
+Most memory tools let the AI manage the memory: the AI decides what to save, and then either loads the whole
+memory into every message or has to search it. That costs tokens, and if the AI forgets to save, the fact is lost.
+
+dore manages the memory itself, outside the AI:
+
+| | Usual memory tools | dore |
+|---|---|---|
+| Who decides what to save | The AI (costs tokens, and it can forget) | dore, from what you type (free, every time) |
+| What Claude receives | The whole memory, or what the AI searched for | Only the notes that match your message (usually none) |
+| When a fact changes | Old and new notes may both stay | The old note is replaced |
+| When notes disagree | No rule | What you said wins over what the AI guessed |
+| Where it runs | Sometimes a cloud service | Only on your computer |
+
+Learning costs 0 Claude tokens and adds about 13 ms to each message.
 
 ## See it work in Claude Code
 
-Real screenshots: two Claude Code windows side by side, left **without** dore, right **with** dore.
-Claude Code's own memory is turned off on both sides, so only dore can remember.
+Left: **without** dore. Right: **with** dore.
 
 **Session 1:** tell Claude a fact.
 

@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [master]
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
   pull_request:
     branches: [master]
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
   workflow_dispatch:
 
 permissions:
@@ -22,12 +24,14 @@ jobs:
   test:
     name: Test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     continue-on-error: ${{ matrix.optional || false }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - { name: linux-x64, os: ubuntu-latest, evals: true }
+          - { name: linux-x64 python 3.11, os: ubuntu-latest, python: "3.11" }
           - { name: linux-arm64, os: ubuntu-24.04-arm }
           - { name: macos-arm64, os: macos-latest }
           - { name: macos-x64, os: macos-15-intel }
@@ -58,16 +62,18 @@ jobs:
           PY=.venv/bin/python; [ -f "$PY" ] || PY=.venv/Scripts/python.exe
           "$PY" -m pytest -q
 
-      - name: Evals (no LLM)
+      - name: Evals (no LLM; numbers on the run summary page)
         if: matrix.evals
         run: |
-          .venv/bin/python -m dore.eval.conversation
-          .venv/bin/python -m dore.eval.learning
-          .venv/bin/python -m dore.eval.stream
+          for m in conversation learning stream; do
+            echo "### dore.eval.$m" >> "$GITHUB_STEP_SUMMARY"
+            .venv/bin/python -m "dore.eval.$m" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
 
   install:
     name: Install + hook (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     continue-on-error: ${{ matrix.optional || false }}
     strategy:
       fail-fast: false

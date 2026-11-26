@@ -20,6 +20,7 @@ if (Test-Path $env:DORE_HOME) { Remove-Item -Recurse -Force $env:DORE_HOME }
 $t = Measure-Command { node "$Repo\npm\bin\dore-memory.js" install | Out-Host }
 $hook = Join-Path $env:DORE_HOME ".venv\Scripts\dore-hook.exe"
 Check "install" (Test-Path $hook) ("{0:N0} s" -f $t.TotalSeconds)
+if (-not (Test-Path $hook)) { $results | Format-Table -AutoSize; exit 1 }  # nothing else can pass
 
 Write-Host "== 2. hook command through Git Bash"
 $bash = @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -45,7 +46,7 @@ Check "first prompt under 20 s (Claude Code's hook limit)" ($r1.Seconds -lt 20) 
 $r2 = Send-Prompt "What port does the billing service use?" "smoke-2"
 Check "recall in a new session" ($r2.Out -match "6200") ("{0:N1} s" -f $r2.Seconds)
 $warm = @(1..3 | ForEach-Object { (Send-Prompt "What port does the billing service use?" "smoke-w$_").Seconds })
-Check "warm helper (127.0.0.1 + token)" (($warm | Measure-Object -Minimum).Minimum -lt 1) (($warm | ForEach-Object { "{0:N2}" -f $_ }) -join " / " + " s")
+Check "warm helper (127.0.0.1 + token)" (($warm | Measure-Object -Minimum).Minimum -lt 1) ((($warm | ForEach-Object { "{0:N2}" -f $_ }) -join " / ") + " s")
 Check "helper port file" (Test-Path (Join-Path $env:DORE_HOME "data\hook.sock")) "data\hook.sock"
 
 Write-Host "== 3. status and uninstall"

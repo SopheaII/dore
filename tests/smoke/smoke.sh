@@ -14,9 +14,10 @@ check() { if [ "$2" = 1 ]; then r=PASS; else r=FAIL; FAIL=1; fi; printf '%-52s %
 
 echo "== 1. install (from $REPO)"
 start=$(date +%s)
-node "$REPO/npm/bin/dore-memory.js" install </dev/null
+node "$REPO/npm/bin/dore-memory.js" install </dev/null || true
 ok=0; [ -x "$DORE_HOME/.venv/bin/dore-hook" ] && ok=1
 check "install" "$ok" "$(( $(date +%s) - start )) s"
+if [ "$ok" = 0 ]; then cat "$WORK/results"; exit 1; fi  # nothing else can pass
 
 echo "== 2. hook command"
 CMD=$(node -e 'console.log(require(process.argv[1]).hooks.UserPromptSubmit[0].hooks[0].command)' "$REPO/plugin/hooks/hooks.json")

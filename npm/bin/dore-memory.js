@@ -40,9 +40,9 @@ function spawn(cmd, args, opts) {
   return spawnSync([cmd, ...args].map(q).join(" "), { ...opts, shell: true });
 }
 
-function run(cmd, args, { allowFail = false } = {}) {
+function run(cmd, args, { allowFail = false, env } = {}) {
   console.log(`  $ ${[cmd, ...args].join(" ")}`);
-  const r = spawn(cmd, args, { stdio: "inherit" });
+  const r = spawn(cmd, args, { stdio: "inherit", ...(env ? { env } : {}) });
   if (r.status !== 0 && !allowFail) fail(`command failed: ${cmd} ${args.join(" ")}`);
   return r.status === 0;
 }
@@ -74,7 +74,12 @@ function installUv() {
   say("dore needs Python 3.11+. uv (https://docs.astral.sh/uv/) can set it up for dore only.");
   if (!ask("Install uv now?")) fail("stopped. Install Python 3.11+ or uv, then run: npx dore-memory install");
   if (IS_WIN) {
-    run("powershell", ["-NoProfile", "-ExecutionPolicy", "ByPass", "-Command", "irm https://astral.sh/uv/install.ps1 | iex"]);
+    // Started from PowerShell 7, Windows PowerShell 5 inherits 7's PSModulePath and fails to load its
+    // own modules ("module could not be loaded"); give it a clean one. Fall back to pwsh if needed.
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toLowerCase() !== "psmodulepath"));
+    const ps = ["-NoProfile", "-ExecutionPolicy", "ByPass", "-Command", "irm https://astral.sh/uv/install.ps1 | iex"];
+    const ok = run("powershell", ps, { env, allowFail: true }) || (has("pwsh") && run("pwsh", ps, { allowFail: true }));
+    if (!ok) fail("could not install uv. Install it yourself (https://docs.astral.sh/uv/), then run: npx dore-memory install");
   } else {
     if (!has("curl")) fail("needs curl to install uv. Install uv yourself: https://docs.astral.sh/uv/");
     run("sh", ["-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"]);
