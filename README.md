@@ -150,10 +150,10 @@ It also works with opencode and other MCP agents.
    each new session, in a few lines at most; rules you stop repeating fade, like habits, and still come back when a
    message matches them.
 
-With Haiku learning on, steps 2 and 4 happen later: every sentence you type is kept on your machine at once, and
-after each session dore's background helper sends the waiting ones (not code, logs, pastes or Claude's replies) to
+With Haiku learning on, steps 2 and 4 still happen at once (so it works from your very first session), and Haiku
+reviews them afterwards: after each session dore's background helper sends what you typed (not code, logs, pastes or Claude's replies) to
 Haiku through your own `claude` command. Haiku says which are lasting facts or rules, which repeat or update an
-existing note, and which are noise. Nothing is deleted; an old note is hidden only when a second check agrees
+existing note, and which are noise; a quick note it doesn't agree with is archived. Nothing is deleted; an old note is hidden only when a second check agrees
 it is out of date. Offline or at your plan's limit, the sentences wait and are tried again later.
 
 Without Haiku, learning runs locally with small models: no Claude tokens, and your memory never leaves your machine.

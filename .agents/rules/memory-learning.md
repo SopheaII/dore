@@ -207,8 +207,9 @@ Measured 2026-11-25 (`dore.eval.learning`, `dore.eval.stream seeds 5`):
 
 ## Learning by Haiku consolidation (opt-in, 2026-11-26)
 
-- `data/learner` = `haiku` (asked at install, default no; `DORE_LEARN` overrides): the prompt hook only queues the
-  message's sentences in raw memory (`hooks.queue_message`, shape filter `learn.consolidate.sentences`: 3-60 words,
+- `data/learner` = `haiku` (asked at install, default no; `DORE_LEARN` overrides): the word rules still learn at once
+  (provisional notes, table `provisional`: the first session works before any batch), and the prompt hook also queues
+  the message's sentences in raw memory (`hooks.queue_message`, shape filter `learn.consolidate.sentences`: 3-60 words,
   questions only with 12+ words, no code/logs, nothing from messages over 3,000 chars, at most 20 per message, not
   Claude's text pasted back). An exact repeat of a sentence that became a note counts at once (`said_again`, once per
   session, `note_sessions`).

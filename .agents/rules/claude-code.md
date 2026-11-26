@@ -37,5 +37,6 @@ Measured 2026-11-24/25; keep these when changing the plugin.
   would otherwise learn the batch: it did, 132 junk notes, archived), no tools, no MCP, no saved session, an empty
   folder outside every project. Measured: ~1.3-1.7k tokens in, 20-700 out, 3-5 s per call; 76 calls / ~226k tokens
   for the real 22-day replay with batches of ~8 (now full batches: about half). Failures keep the queue: back-off
-  30 min doubling to a day, or the limit's reset time; daily cap 50k tokens. Prompt hook in this mode: ~4.4 ms
-  (word rules 13.8 ms).
+  30 min doubling to a day, or the limit's reset time; daily cap 50k tokens. Prompt hook in this mode: the word rules still
+  run (provisional notes, so a first session works at once) plus queueing: ~14 ms (queueing alone 4.4 ms).
+  After a batch, provisional notes Haiku did not make or match are archived (`learner.settle`).

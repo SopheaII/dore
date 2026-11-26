@@ -96,6 +96,8 @@ class MemoryStore:
                                 [(" ".join(_dup_key(c)), i) for i, c in self.db.execute(
                                     "SELECT id, content FROM memories").fetchall()])
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_mem_words ON memories(project, words_key)")
+        # Notes the word rules made at once while the Haiku learner was on; settled when Haiku judged their sentences.
+        self.db.execute("CREATE TABLE IF NOT EXISTS provisional (note_id INTEGER PRIMARY KEY, episodes TEXT NOT NULL)")
         self.db.execute("CREATE TABLE IF NOT EXISTS note_sessions (note_id INTEGER NOT NULL, session TEXT NOT NULL, "
                         "PRIMARY KEY (note_id, session))")
         had_fts = self.db.execute(

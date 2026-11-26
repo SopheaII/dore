@@ -157,8 +157,9 @@ def test_haiku_learner_end_to_end_queue_batch_then_recall(tmp_path, monkeypatch)
     from dore.integrations import hooks, learner
     s = store(tmp_path)
     st = hooks._State(tmp_path, "one")
-    out = hooks.on_prompt(s, "the staging api runs on port 8443", "shop", st, learn="haiku")
-    assert out == "" and s.db.execute("SELECT count(*) FROM memories").fetchone()[0] == 0  # nothing judged yet
+    hooks.on_prompt(s, "the staging api runs on port 8443", "shop", st, learn="haiku")
+    first = s.db.execute("SELECT id FROM memories").fetchall()
+    assert len(first) == 1  # known at once by the word rules, provisional until Haiku judges it
     for k in range(29):
         hooks.on_prompt(s, f"please rename variable number {k} in cart", "shop", st, learn="haiku")
     monkeypatch.setattr(learner, "ClaudeCLI", lambda: Fake("1 fact project: The staging API runs on port 8443."))
@@ -200,3 +201,19 @@ def test_what_was_said_in_one_session_is_learned_before_the_next(tmp_path, monke
     monkeypatch.setattr(learner, "ClaudeCLI", lambda: Fake("1 fact project: The staging API runs on port 8443."))
     hooks.consolidate(s, learn="haiku", wait=True)
     assert "8443" in hooks.prompt_context(s, "what port is staging on?", "shop", hooks._State(tmp_path, "three"))
+
+
+
+def test_haiku_settles_provisional_notes_keeps_what_it_agrees_with_archives_junk(tmp_path, monkeypatch):
+    from dore.integrations import hooks, learner
+    s = store(tmp_path)
+    hooks.on_prompt(s, "the staging api runs on port 8443", "shop", hooks._State(tmp_path, "one"), learn="haiku")
+    hooks.on_prompt(s, "thsi are too many button and some are not need", "shop", hooks._State(tmp_path, "one"),
+                    learn="haiku")
+    made = [r[0] for r in s.db.execute("SELECT id FROM memories WHERE archived=0")]
+    monkeypatch.setattr(learner, "ClaudeCLI", lambda: Fake("1 fact project: The staging api runs on port 8443.\n2 skip"))
+    hooks.consolidate(s, learn="haiku", wait=True)
+    left = {m.content: m for m in s.get_many(made).values()}
+    kept = [c for c, m in left.items() if not m.archived]
+    assert any("8443" in c for c in kept) and not any("button" in c for c in kept)
+    assert all(m.times_seen == 1 for m in left.values())  # Haiku agreeing is not the user saying it again

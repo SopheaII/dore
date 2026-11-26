@@ -114,6 +114,9 @@ def _apply(store, v: Verdict, s: Said, batch: list[Said], made: dict[int, int], 
     project = s.project if v.scope == "project" else ""
     if v.action != "update" and (old := store.same_words(v.text, project)) is not None:
         store.said_again(old, s.created, s.session)
+        if v.action == "rule":  # the note made at once by the word rules: Haiku's judgement and words win
+            store.mark_rules({old: True})
+            store.set_rule_words(old, v.when, v.forbid)
         stats["same"] += 1
         return old
     nid = store.add(v.text, kind="statement", source="user", trust="verified", project=project, created=s.created)

@@ -73,6 +73,7 @@ def run_once(store, ask=None, ended: bool = False) -> dict | None:
                                  [(JUDGED, int(n in made), (made.get(n) or [None])[0], s.id)
                                   for n, s in enumerate(batch, 1)])
             store.db.commit()
+        stats["archived"] = settle(store, {s.id: made.get(n, []) for n, s in enumerate(batch, 1)})
         u = stats.get("usage") or {}
         day = time.strftime("%Y-%m-%d")
         tokens = (st.get("tokens", 0) if st.get("day") == day else 0) + u.get("input", 0) + u.get("output", 0)
@@ -80,6 +81,28 @@ def run_once(store, ask=None, ended: bool = False) -> dict | None:
         return stats
     finally:
         _RUNNING.release()
+
+
+def settle(store, judged: dict[int, list[int]]) -> int:
+    """Provisional notes (made at once by the word rules) whose sentences Haiku has now all judged: kept when Haiku
+    made or matched them, archived otherwise (never deleted; Haiku's own notes stand). Returns how many archived."""
+    rows = store.db.execute("SELECT note_id, episodes FROM provisional").fetchall()
+    done = {e for e, in store.db.execute(f"SELECT id FROM episodes WHERE judged='{JUDGED}'")}
+    made_by = {}
+    for r in store.db.execute(f"SELECT id, note_id FROM episodes WHERE judged='{JUDGED}' AND note_id IS NOT NULL"):
+        made_by[r[0]] = {r[1]}
+    for e, ids in judged.items():
+        made_by.setdefault(e, set()).update(ids)
+    gone = 0
+    for note_id, eps in rows:
+        eps = json.loads(eps)
+        if not all(e in done for e in eps):
+            continue
+        if not any(note_id in made_by.get(e, ()) for e in eps) and store.archive(note_id):
+            gone += 1
+        store.db.execute("DELETE FROM provisional WHERE note_id=?", (note_id,))
+    store.db.commit()
+    return gone
 
 
 def run_in_background(store, ask=None) -> threading.Thread | None:

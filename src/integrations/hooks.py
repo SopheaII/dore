@@ -557,7 +557,7 @@ def save_facts(store: MemoryStore, facts: list[str], project: str, created: floa
 
 
 def learn_message(store: MemoryStore, msg: str, project: str, echo: str = "",
-                  session_ids: set[int] | None = None, session: str = "") -> list[int]:
+                  session_ids: set[int] | None = None, session: str = "", raw: bool = True) -> list[int]:
     """Everything one user message teaches, in one place (prompt hook, SessionEnd, opencode bridge):
     short facts (not ones Claude wrote and the user pasted back); else the gist of a long instruction
     as a hidden requirement. Every other sentence the user typed is kept as raw memory (`episodes`).
@@ -574,7 +574,8 @@ def learn_message(store: MemoryStore, msg: str, project: str, echo: str = "",
                          f"({','.join('?' * len(again))})", again)
         store.db.commit()
     seen |= set(ids)
-    episodes.add(store, not_echoed(episode_sentences(msg, facts), echo), project, session, judged=RULES_VERSION)
+    if raw:  # with the Haiku learner, raw memory is its queue (`queue_message`)
+        episodes.add(store, not_echoed(episode_sentences(msg, facts), echo), project, session, judged=RULES_VERSION)
     req = not_echoed([requirement_text(msg)], echo)
     if req and req[0] and not ids and (dup := _handled_just_now(store, req[0], project)):
         seen.add(dup)
@@ -588,13 +589,26 @@ def learn_message(store: MemoryStore, msg: str, project: str, echo: str = "",
     return ids
 
 
-def queue_message(store: MemoryStore, msg: str, project: str, echo: str = "", session: str = "") -> list[int]:
+def mark_provisional(store: MemoryStore, note_ids: list[int], episode_ids: list[int], session: str = ""):
+    """Notes the word rules just made from a message whose sentences wait for Haiku. With no sentence queued (all
+    filtered out), there is nothing for Haiku to judge: the note stays as the word rules made it."""
+    if note_ids and episode_ids:
+        store.db.executemany("INSERT OR REPLACE INTO provisional (note_id, episodes) VALUES (?, ?)",
+                             [(i, json.dumps(episode_ids)) for i in note_ids])
+        # Haiku judging the same sentence later is not the user saying it again.
+        store.db.executemany("INSERT OR IGNORE INTO note_sessions (note_id, session) VALUES (?, ?)",
+                             [(i, session) for i in note_ids])
+        store.db.commit()
+
+
+def queue_message(store: MemoryStore, msg: str, project: str, echo: str = "", session: str = "",
+                  count_repeats: bool = True) -> list[int]:
     """Haiku learner: keep the message's sentences in raw memory, where they wait for the next batch
     (`integrations.learner`). Nothing is judged here: no model, ~0.1 ms. The same sentence again, once it became a
     note, counts as said again at once."""
     from dore.learn.consolidate import sentences
     ids = episodes.add(store, not_echoed(sentences(msg), echo), project, session)
-    for eid in ids:
+    for eid in ids if count_repeats else ():  # the word rules count exact repeats when they run too
         row = store.db.execute("SELECT note_id FROM episodes WHERE id=?", (eid,)).fetchone()
         if row and row[0]:
             store.said_again(row[0], time.time(), session)
@@ -669,16 +683,14 @@ def on_prompt(store: MemoryStore, prompt: str, project: str, state: _State, echo
     statements right away (so a correction counts in this session, not only at its end), then
     pick notes for this prompt. Returns the text to add ("" = nothing, 0 tokens)."""
     state.d["archived"] = state.d.get("archived", []) + judge_last(store, state, reply, actions, project)
-    if learn == "haiku":  # learned later, in a batch: a correction is judged with the notes it corrects
-        queue_message(store, prompt, project, echo, state.session)
-        state.d.setdefault("handled", []).append(message_key(prompt))
-        text = prompt_context(store, prompt, project, state)
-        state.d["last_prompt"] = prompt[:2000]
-        store.save()
-        return text
+    queued = queue_message(store, prompt, project, echo, state.session, count_repeats=False) \
+        if learn == "haiku" else []
     state.d["last_signal"] = react(store, prompt, state)
     session_ids = set(state.d.get("saved", []))
-    new_ids = learn_message(store, prompt, project, echo, session_ids, state.session)
+    first_new = (store.db.execute("SELECT MAX(id) FROM memories").fetchone()[0] or 0) + 1
+    new_ids = learn_message(store, prompt, project, echo, session_ids, state.session, raw=learn != "haiku")
+    if learn == "haiku":  # known at once, provisional: Haiku's batch keeps or archives them (`learner.settle`)
+        mark_provisional(store, [i for i in new_ids if i >= first_new], queued, state.session)
     state.d["saved"] = sorted(session_ids)
     # Handled, whatever it taught (also only hidden rules): SessionEnd must not count it a second time.
     state.d.setdefault("handled", []).append(message_key(prompt))
