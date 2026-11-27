@@ -41,6 +41,34 @@ def test_requests_questions_reactions_are_not_learned(text):
 
 
 @needs_parser
+@pytest.mark.parametrize("text", [
+    "last week i say tabs right why you put spaces", "the cart still empty what you remove from the store",
+    "I gave you the schema already so why you guess the columns", "Before I said vitest but you wrote jest tests",
+    "the script you edited broke the cron",
+])
+def test_remarks_on_what_the_assistant_did_are_not_learned(text):
+    assert message_facts(text) == [], text
+
+
+@needs_parser
+@pytest.mark.parametrize("text", [
+    "The worker retries when you kill it with SIGTERM", "We pin Node 20 so you can build on any machine",
+    "you wrote jest tests but we test with vitest here", "I told you our queue is Kafka",
+    "The files you upload are kept in S3 for 30 days", "The sidebar lists everything you star in Linear",
+])
+def test_generic_you_and_facts_told_to_the_assistant_are_learned(text):
+    assert message_facts(text), text
+
+
+@needs_parser
+def test_a_question_word_about_what_the_assistant_does_asks_without_a_question_mark():
+    assert grammar.asks("last week i say tabs right why you put spaces")
+    assert grammar.asks("the cart still empty what you remove from the store")
+    assert not grammar.asks("The worker retries when you kill it with SIGTERM")
+    assert not grammar.asks("We pin Node 20 so you can build on any machine")
+
+
+@needs_parser
 def test_fact_inside_a_request_is_kept_without_the_request():
     got = message_facts("tidy up the worker since our queue is Kafka")
     assert got and "Kafka" in got[0] and "tidy" not in got[0].lower()
@@ -356,3 +384,38 @@ def test_here_is_the_codebase_only_when_the_sentence_is_not_about_the_user():
     assert scope_for("I live here in Phnom Penh", "shop") == ""            # the user's, in every project
     assert scope_for("Here we never push straight to main", "shop") == "shop"
     assert scope_for("In this repo I always use tabs", "shop") == "shop"   # the codebase named
+
+
+@needs_parser
+def test_a_polite_word_glued_to_the_previous_one_ends():
+    assert message_facts("the cron has stopped running.pls restart the box tonight") is not None
+
+
+@needs_parser
+def test_setup_said_in_a_second_project_becomes_the_users(tmp_path):
+    from dore.learn.statements import promoted
+    from dore.memory import MemoryStore
+    from dore.memory.embed import HashEmbedder
+    s = MemoryStore(tmp_path / "m.db", None, HashEmbedder())
+    for text in ("I build with bun", "The queue is RabbitMQ", "I lint with ruff"):
+        s.add(text, kind="statement", source="user", trust="verified", project="shop")
+    assert promoted(s, "I build with bun", "I build with bun", "blog")           # the user's own setup, twice
+    assert not promoted(s, "I build with bun", "I build with bun", "shop")       # the same project again
+    assert not promoted(s, "The queue is RabbitMQ", "The queue is RabbitMQ", "blog")  # a value shared by chance
+    assert not promoted(s, "I lint with flake8", "I lint with flake8", "blog")   # another tool
+
+
+@needs_parser
+def test_with_haiku_a_long_message_leaves_no_hidden_word_rule_notes(tmp_path):
+    from dore.integrations.hooks import _State, on_prompt
+    from dore.memory import MemoryStore
+    from dore.memory.embed import HashEmbedder
+    s = MemoryStore(tmp_path / "m.db", None, HashEmbedder())
+    msg = ("the report page should show totals without refunded orders, and do not touch the old csv exporter "
+           "because finance still uses it every month for the audit")
+    on_prompt(s, msg, "p", _State(tmp_path, "h"), learn="haiku")
+    assert s.db.execute("SELECT count(*) FROM memories WHERE kind='requirement'").fetchone()[0] == 0
+    assert s.db.execute("SELECT count(*) FROM episodes").fetchone()[0] >= 1  # waits for Haiku
+    w = MemoryStore(tmp_path / "w.db", None, HashEmbedder())
+    on_prompt(w, msg, "p", _State(tmp_path, "r"), learn="rules")  # word rules alone (checks) still keep the gist
+    assert w.db.execute("SELECT count(*) FROM memories WHERE kind='requirement'").fetchone()[0] >= 1

@@ -4,7 +4,7 @@
     python -m dore.learn.recheck --apply    # archive them (kept in SQLite, `MemoryStore.restore` brings one back)
 
 Only the user's own statements are re-judged (`source="user"`, `kind="statement"`), never protected
-notes, list items (`MemoryStore.add_group`), documents, lessons or Claude's notes. Nothing is deleted. A note passes when today's rules
+notes, list items (`MemoryStore.add_group`), documents, lessons or Claude's notes. Archived notes are deleted after the next Haiku batch. A note passes when today's rules
 still learn its words from it (`message_facts`), so rule improvements also clean what older rules
 stored ("Now turn it on and show on status line too", pasted UI lines).
 """

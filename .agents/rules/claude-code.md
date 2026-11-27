@@ -40,4 +40,4 @@ Measured 2026-11-24/25; keep these when changing the plugin.
   for the real 22-day replay with batches of ~8 (now full batches: about half). Failures keep the queue: back-off
   30 min doubling to a day, or the limit's reset time; daily cap 50k tokens. Prompt hook in this mode: the word rules still
   run (provisional notes, so a first session works at once) plus queueing: ~14 ms (queueing alone 4.4 ms).
-  After a batch, provisional notes Haiku did not make or match are archived (`learner.settle`).
+  After a batch, provisional notes Haiku did not make or match are archived (`learner.settle`), then all noise is deleted for good (`MemoryStore.forget_noise`: archived notes and raw sentences that taught nothing; wrong notes and old values stay).

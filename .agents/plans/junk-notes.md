@@ -63,7 +63,7 @@ Options for the user (decision pending):
 2. **The user is a checker too (exists):** a re-ask after a note (-), a "No, ..." correction (wrong), the same
    sentence again in another session (+, roadmap step 3 "Next").
 3. **Score and archive** (roadmap step 3 "Left", idle consolidation): use + repeats + recency + trust. A note
-   shown several times and never used is archived (kept in SQLite, never deleted; protected notes exempt).
+   shown several times and never used is archived (later deleted as noise, `MemoryStore.forget_noise`; protected notes exempt).
    A note never matched by any question for weeks decays.
 4. **New notes start unproven.** Shown on a strong match as today, but the first misses count most; a note
    used once is safe.

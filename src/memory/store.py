@@ -1,4 +1,5 @@
-"""Fast memory: SQLite records plus a FAISS vector index. Nothing is hard-deleted; archived and wrong notes stay out of search."""
+"""Fast memory: SQLite records plus a FAISS vector index. Archived and wrong notes stay out of search; noise is deleted
+once judged (`forget_noise`)."""
 
 from __future__ import annotations
 
@@ -574,7 +575,7 @@ class MemoryStore:
             self.db.commit()
 
     def archive(self, mem_id: int) -> bool:
-        """Archive (never delete). Protected items are refused."""
+        """Archive: out of search, deleted later as noise (`forget_noise`). Protected items are refused."""
         with self._lock:
             self._refresh()
             before = self.get(mem_id)
@@ -584,6 +585,28 @@ class MemoryStore:
             self.db.commit()
             self._sync_index(before, self.get(mem_id))
             return True
+
+    def forget_noise(self, judged: str) -> dict:
+        """Delete noise for good: archived notes (junk, or never used) and raw sentences judged with `judged` that
+        taught nothing. Kept: notes marked wrong and old values (so they never come back as truth), protected
+        notes, and any archived note another note still points to."""
+        with self._lock:
+            self._refresh()
+            notes = [r[0] for r in self.db.execute(
+                "SELECT id FROM memories m WHERE archived=1 AND protected=0 AND trust!='wrong' AND replaced_by IS NULL"
+                " AND NOT EXISTS (SELECT 1 FROM memories o WHERE (o.replaced_by=m.id OR o.group_id=m.id) AND o.id!=m.id)"
+                " AND NOT EXISTS (SELECT 1 FROM shadows s WHERE s.by_id=m.id)"
+                " AND NOT EXISTS (SELECT 1 FROM rule_links r WHERE r.parent=m.id)")]
+            for start in range(0, len(notes), 500):
+                part = notes[start:start + 500]
+                marks = ",".join("?" * len(part))
+                self.db.execute(f"DELETE FROM episodes WHERE note_id IN ({marks})", part)
+                for table in ("note_sessions", "provisional", "shadows", "rule_links"):
+                    self.db.execute(f"DELETE FROM {table} WHERE note_id IN ({marks})", part)
+                self.db.execute(f"DELETE FROM memories WHERE id IN ({marks})", part)
+            sentences = self.db.execute("DELETE FROM episodes WHERE judged=? AND note_id IS NULL", (judged,)).rowcount
+            self.db.commit()
+            return {"notes": len(notes), "sentences": sentences}
 
     def restore(self, mem_id: int):
         with self._lock:

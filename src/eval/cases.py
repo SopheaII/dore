@@ -175,6 +175,15 @@ DEV = [
     ("my cat name Mochi", "Mochi", "general", "non-native"),
     ("i use rider for dotnet code", "rider", "general", "non-native"),
     ("we not use docker in this repo", "docker", "project", "non-native"),
+    # a remark on what the assistant did, often a question without "?" or "do": not a fact about the user;
+    # the generic "you" of how things work stays (2026-11-27, own wording)
+    ("yesterday i tell you we use yarn so why you install with npm", "", None, "non-native"),
+    ("the login still broken what you change in the auth file", "", None, "non-native"),
+    ("i set port 5000 before how you get 8000", "", None, "non-native"),
+    ("Earlier I asked for tabs but you used spaces", "", None, "plain"),
+    ("The API returns 401 when you call it without a token", "401", "project", "plain"),
+    ("We use Docker so you can run the app on any laptop", "Docker", "project", "plain"),
+    ("you used npm but we use pnpm in this repo", "pnpm", "project", "non-native"),
     # ambiguous: not scored
     ("Don't run the slow e2e suite, just use the unit tests now.", None, None, "ambiguous"),
 ]

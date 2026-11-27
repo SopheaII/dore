@@ -32,7 +32,7 @@ for the rest when it needs it. Haiku decides what is worth keeping, code and log
 6. **`dore-hook recall <id>`**: all items of a group, only when Claude runs it (0 tokens until then; no MCP tool).
 
 Data model: a group note (title + summary) and item notes linked to it; items are searchable one by one; newer wins
-per item; a group never overrules the user's verified facts; nothing hard-deleted (archived).
+per item; a group never overrules the user's verified facts; junk is deleted once Haiku judged it (`MemoryStore.forget_noise`).
 
 ## Measure
 

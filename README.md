@@ -142,10 +142,10 @@ It also works with opencode and other MCP agents.
 
 - **Learn:** dore reads each message before Claude does and keeps facts and rules. It skips questions and requests.
 - **Recall:** it adds only the notes that match your message. Nothing matches, nothing is added.
-- **Update:** a new value replaces the old one. The old note is hidden, never deleted.
+- **Update:** a new value replaces the old one. The old note is hidden but kept, so the old value never comes back.
 - **Rules like habits:** a rule you repeat or Claude follows gets stronger and starts each session; unused ones fade.
 - **Haiku review:** at a session end, Haiku checks what you typed and pasted (not Claude's replies)
-  and keeps, merges or archives notes; a pasted list is kept whole, a log or error is dropped. Until it runs (or
+  and keeps or merges notes, deleting the junk; a pasted list is kept whole, a log or error is dropped. Until it runs (or
   when `claude` can't be reached), local word rules keep what you say.
 
 ## Privacy

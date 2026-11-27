@@ -149,6 +149,34 @@ def scope_for(text: str, project: str) -> str:
     return "" if mine else project
 
 
+PROMOTE_SIMILARITY = 0.85  # the same habit said in another project
+PROMOTE_SAME_VALUE = 0.82  # same setup in other words 0.83-0.89; "we stopped using X" 0.80; another tool 0.75
+
+
+def promoted(store, note: str, said: str, project: str) -> bool:
+    """A note said again in a second project belongs to the user, not to one project. A habit with no name or
+    number needs the same content words ("Don't reformat existing code"). A setup with a name ("I use pnpm") needs
+    the same names and the user speaking of themselves: two projects stating the same value by chance ("The
+    database is PostgreSQL") stay apart. `said` is the user's own sentence (`note` may be Haiku's wording)."""
+    from dore.learn.grammar import about_user, nlp, values
+    if not project or nlp() is None:
+        return False
+    names = values(note)
+    if names and not about_user(said):
+        return False
+    words = _content_words(note)
+    bar = PROMOTE_SAME_VALUE if names else PROMOTE_SIMILARITY
+    return any(m.project not in ("", project) and m.source == "user" and m.trust == "verified"
+               and (values(m.content) == names if names else _content_words(m.content) == words)
+               for m in store.search(note, k=3, min_similarity=bar, touch=False, keyword=False))
+
+
+def _content_words(text: str) -> frozenset:
+    from dore.memory.rules import FRAME_FILLER, STOPWORDS
+    return frozenset(w for w in re.findall(r"[a-z0-9]+", text.lower())
+                     if w not in STOPWORDS and w not in FRAME_FILLER and w not in ("please", "pls", "plz", "t", "don"))
+
+
 def structured_line(line: str) -> bool:
     """A line shaped like output, code or a list rather than typed chat (any language)."""
     t = line.rstrip()

@@ -59,7 +59,7 @@ Keep three things apart. Today one `project` string does all three.
 6. **User control:** `dore scope <id> user|workspace|repo` (CLI + MCP tool), and a correction like "that's for all
    my projects" right after a save moves the last note (same path as today's "No, ..." corrections).
 7. **Migration:** old notes keep their folder name as an alias; `integrations.backfill` already reads session
-   transcripts, which hold each session's `cwd`, so old folder names map to repo ids. Nothing is deleted.
+   transcripts, which hold each session's `cwd`, so old folder names map to repo ids. No note is deleted by the move.
 
 ### Speed (estimates until measured)
 

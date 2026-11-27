@@ -12,6 +12,14 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# Where a note lives: what it is about, not whether it says "I".
+SCOPE = """user: true of the person in every project: their name, family, pets, home, job, languages, health, their \
+own computer and its system, how they want the assistant to work or answer from now on, or the whole team or \
+company across all its projects. project: everything \
+this codebase uses or needs (packages, package manager, frameworks, tools, versions, deployment, servers, data, \
+clients), also when said with "I" ("I use pnpm" here belongs to this project), and a wish about the reply to the \
+current task only. If unsure: project."""
+
 SYSTEM = """You decide what a developer's messages to a coding assistant should leave in long-term memory. Most \
 lines are tasks or chat about right now: skip them. Keep only what will still be true and useful in a later session.
 
@@ -36,8 +44,7 @@ may also state a lasting fact: keep that fact.
 update: only when the sentence and note #id cannot both be true now: the same subject and the same property with \
 a new value. Another thing of the same kind (another item, person, service, job, place or time) is a new fact, \
 and note #id stays.
-user: about the person (name, home, habits, taste, own setup) or the whole team or company across all its \
-projects. project: everything about this codebase, its deployment, servers, data and clients. If unsure: project.
+""" + SCOPE + """
 note: one short plain sentence with only what the user said; keep names, numbers and paths exactly; one fact per \
 note (one line may give several).
 when: 1-3 words seen in commands or code when the rule applies; not: words that would break it (may be empty).

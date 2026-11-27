@@ -12,7 +12,7 @@ For every changed rule, look for a concrete message sequence that:
 1. hides a true fact (wrong replace, merge or demote), or keeps an outdated one searchable;
 2. stores a request, question, paste or the assistant's own text as a verified fact;
 3. lets an agent or unverified note overrule a user fact, or archives a protected note;
-4. hard-deletes anything, or trains anything (hard rules);
+4. deletes anything that is not noise (a real note, a wrong note, an old value), or trains anything (hard rules);
 5. crosses projects wrongly: a general note replacing a project's own note, or one project's
    names, paths or IDs stored as general (shown in every other project);
 6. misses something it should learn: a plain fact, decision or correction the user stated that

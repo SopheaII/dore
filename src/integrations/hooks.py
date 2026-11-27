@@ -18,7 +18,7 @@ from dore.config import Config
 from dore.learn.grammar import asks, tells, topic_key
 from dore.learn.statements import (ASKS_START, CORRECTION_LEAD, IMPLICIT_FEEDBACK, PERSONAL, QUESTION_START,
                                    REASK_SIMILARITY,
-                                   REQ_MAX_CHARS, episode_sentences, list_group, message_facts, requirement_text,
+                                   REQ_MAX_CHARS, episode_sentences, list_group, message_facts, promoted, requirement_text,
                                    scope_for, user_facts)
 from dore.integrations import update
 from dore.integrations.project import display_name, project_of
@@ -469,31 +469,6 @@ def message_key(text: str) -> str:
     return hashlib.sha1(" ".join(text.split()).encode()).hexdigest()[:16]
 
 
-PROMOTE_SIMILARITY = 0.85  # the same habit said in another project
-
-
-def _promoted(store: MemoryStore, fact: str, project: str) -> bool:
-    """A habit or preference with no concrete value ("Don't reformat existing code") said again in a
-    second project becomes general: it is about the user, not one project. Facts with a name or
-    number ("The database is PostgreSQL") never move: they differ per project."""
-    from dore.learn.grammar import nlp, _detail
-    parser = nlp()
-    if not project or parser is None or _detail(parser(fact)):  # any name, incl. "vitest"
-        return False
-    # Same content words, not only close in meaning: "We merge into develop" vs "... into trunk" are
-    # close (0.9) but differ in the value, which may be an ordinary word (stream test, 2026-11-25).
-    words = _content_words(fact)
-    return any(m.project not in ("", project) and m.source == "user" and m.trust == "verified"
-               and _content_words(m.content) == words
-               for m in store.search(fact, k=3, min_similarity=PROMOTE_SIMILARITY, touch=False, keyword=False))
-
-
-def _content_words(text: str) -> frozenset:
-    from dore.memory.rules import FRAME_FILLER, STOPWORDS
-    return frozenset(w for w in re.findall(r"[a-z0-9]+", text.lower())
-                     if w not in STOPWORDS and w not in FRAME_FILLER and w not in ("please", "pls", "plz", "t", "don"))
-
-
 REQ_SHOW = 1.01  # a requirement said only once is kept but not shown (0.75 doubled tokens: 8.3 -> 17.6 per prompt)
 REQ_SAME = 0.85  # the same requirement said again (0.75 merged different requests about one screen)
 
@@ -575,7 +550,7 @@ def save_facts(store: MemoryStore, facts: list[str], project: str, created: floa
     """Store user statements (verified); each replaces older notes it updates. `created`: when it was
     said, for a fact learned later from raw memory."""
     ids = []
-    scopes = {f: ("" if _promoted(store, f, project) else scope_for(f, project)) for f in facts}
+    scopes = {f: ("" if promoted(store, f, f, project) else scope_for(f, project)) for f in facts}
     for scope in dict.fromkeys(scopes.values()):
         group = [f for f in facts if scopes[f] == scope]
         ids += store.add_many(group, kind="statement", source="user", trust="verified", project=scope,
@@ -591,7 +566,7 @@ def learn_message(store: MemoryStore, msg: str, project: str, echo: str = "",
     short facts (not ones Claude wrote and the user pasted back); else the gist of a long instruction
     as a hidden requirement. Every other sentence the user typed is kept as raw memory (`episodes`).
     `session_ids`: hidden notes this session already saved (a repeat inside one session doesn't make
-    them lasting); it grows with this message's."""
+    them lasting); it grows with this message's. `raw=False` (the Haiku learner): short facts and lists only."""
     seen = session_ids if session_ids is not None else set()
     if (group := list_group(msg)) and len(items := not_echoed(group[1], echo)) >= 2:
         ids = store.add_group(group[0], items, project=scope_for(group[0], project), session=session)
@@ -608,8 +583,9 @@ def learn_message(store: MemoryStore, msg: str, project: str, echo: str = "",
                          f"({','.join('?' * len(again))})", again)
         store.db.commit()
     seen |= set(ids)
-    if raw:  # with the Haiku learner, raw memory is its queue (`queue_message`)
-        episodes.add(store, not_echoed(episode_sentences(msg, facts), echo), project, session, judged=RULES_VERSION)
+    if not raw:  # Haiku judges the whole message and makes its rules: hidden word-rule copies would only be junk
+        return ids
+    episodes.add(store, not_echoed(episode_sentences(msg, facts), echo), project, session, judged=RULES_VERSION)
     req = not_echoed([requirement_text(msg)], echo)
     if req and req[0] and not ids and (dup := _handled_just_now(store, req[0], project)):
         seen.add(dup)

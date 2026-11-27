@@ -72,6 +72,8 @@ def score_updates(embedder, ask, usage: list) -> dict:
     from dore.learn.consolidate import Said, apply, items_for
     from dore.learn.judge import Item, judge
     stores = [_store(embedder) for _ in UPDATES]
+    for k, st in enumerate(stores):  # unique note ids across the batch, as in one real store
+        st.db.execute("INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES ('memories', ?)", (100 * (k + 1),))
     olds = {k: [stores[k].add(old, kind="statement", trust="verified", project="p", created=1.0)]
             for k, (old, _, _, _) in enumerate(UPDATES)}
     second = [Said(new, "p", "s2", 2.0) for _, new, _, _ in UPDATES]

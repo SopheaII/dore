@@ -26,7 +26,7 @@ Review of the current design (2026-11-26, read and run, not assumed):
 
 Recall is by cue only: each prompt searches notes (meaning + keywords) and adds the few strong matches (<= 600
 chars); standing rules come to mind once per session within the rules budget (600 chars) by strength. Nothing is
-loaded whole; nothing is deleted; a faded note is still found when a prompt matches it.
+loaded whole; a faded note is still found when a prompt matches it; archived junk is deleted after a batch.
 
 ### Easy cases: local, free, every prompt
 
@@ -90,7 +90,7 @@ one `Judge` interface: Claude CLI (default), API key if set, recorded answers (t
   situation `git push`, forbidden `main`). Practice = Claude acts in that situation without the forbidden part, so a
   "never" rule that is being followed stays strong (today "doing nothing leaves no trace" and it fades).
 - Fading only moves a rule from "every session start" to "when a message or Claude's work matches it"; it is
-  never deleted. A rule ends only when the user changes it (`updates #id`).
+  not deleted. A rule ends only when the user changes it (`updates #id`).
 - Noise that slips through costs little: it is never repeated or practised, so it fades from session starts and
   is only shown on a strong match.
 

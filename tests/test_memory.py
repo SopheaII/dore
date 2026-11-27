@@ -35,7 +35,7 @@ def test_wrong_items_are_never_returned(store):
     assert store.get(mid).trust == "wrong"  # kept, not deleted
 
 
-def test_archive_never_deletes_and_respects_protect(store):
+def test_archive_hides_and_respects_protect(store):
     a = store.add("allergy to penicillin", protected=True)
     b = store.add("parked the car on level 3")
     assert store.archive(a) is False
@@ -408,3 +408,23 @@ def test_a_value_is_found_by_its_place_not_its_capital_letter():
     assert not changes("The backend is django", "We moved the frontend to vue")
     assert not changes("The frontend is react", "We moved the frontend to the new repo")
     assert not changes("The cache is redis", "I sent the cache to Dara")
+
+
+def test_noise_is_deleted_but_wrong_old_and_protected_notes_stay(store):
+    from dore.memory import episodes
+    junk = store.add("ok so the button thing again")
+    store.archive(junk)
+    wrong = store.add("The staging box is in Tokyo")
+    store.mark_wrong(wrong)
+    old, new = store.add("The worker runs every 5 minutes"), store.add("The worker runs every 10 minutes")
+    store.replace(old, new)
+    kept = store.add("Invoices are numbered INV-0001", protected=True)
+    noise, taught = episodes.add(store, ["hmm let me think about it", "The queue is SQS"], "p", judged="j")
+    store.db.execute("UPDATE episodes SET note_id=? WHERE id=?", (new, taught))
+    done = store.forget_noise("j")
+    assert done == {"notes": 1, "sentences": 1}
+    with pytest.raises(KeyError):
+        store.get(junk)
+    assert store.get(wrong).trust == "wrong" and store.get(old).replaced_by == new and store.get(kept)
+    left = {r[0] for r in store.db.execute("SELECT id FROM episodes")}
+    assert left == {taught}

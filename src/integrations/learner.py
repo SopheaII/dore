@@ -75,6 +75,7 @@ def run_once(store, ask=None, ended: bool = False) -> dict | None:
                                   for n, s in enumerate(batch, 1) if n not in left])
             store.db.commit()
         stats["archived"] = settle(store, {s.id: made.get(n, []) for n, s in enumerate(batch, 1) if n not in left})
+        stats["deleted"] = store.forget_noise(JUDGED)  # what Haiku judged as noise is gone for good
         u = stats.get("usage") or {}
         day = time.strftime("%Y-%m-%d")
         tokens = (st.get("tokens", 0) if st.get("day") == day else 0) + u.get("input", 0) + u.get("output", 0)
@@ -86,7 +87,7 @@ def run_once(store, ask=None, ended: bool = False) -> dict | None:
 
 def settle(store, judged: dict[int, list[int]]) -> int:
     """Provisional notes (made at once by the word rules) whose sentences Haiku has now all judged: kept when Haiku
-    made or matched them, archived otherwise (never deleted; Haiku's own notes stand). Returns how many archived."""
+    made or matched them, archived otherwise (then deleted, `MemoryStore.forget_noise`). Returns how many archived."""
     rows = store.db.execute("SELECT note_id, episodes FROM provisional").fetchall()
     done = {e for e, in store.db.execute(f"SELECT id FROM episodes WHERE judged='{JUDGED}'")}
     made_by = {}

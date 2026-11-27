@@ -179,8 +179,8 @@
     <text font-size="17" text-anchor="middle" fill="#111">
       <tspan x="1055" y="82">A new value replaces</tspan>
       <tspan x="1055" y="106">the old one. You beat</tspan>
-      <tspan x="1055" y="130">the AI. Nothing is</tspan>
-      <tspan x="1055" y="154">deleted.</tspan>
+      <tspan x="1055" y="130">the AI. The old value</tspan>
+      <tspan x="1055" y="154">is kept, hidden.</tspan>
     </text>
   </g>
 
@@ -280,7 +280,7 @@
       <tspan x="1055" y="82">One small batch at</tspan>
       <tspan x="1055" y="106">a session end checks</tspan>
       <tspan x="1055" y="130">the notes: keep, merge</tspan>
-      <tspan x="1055" y="154">or archive.</tspan>
+      <tspan x="1055" y="154">or delete junk.</tspan>
     </text>
   </g>
 </svg>

@@ -12,7 +12,8 @@ kept here as an episode:
 - `to_judge` / `mark_judged`: episodes are judged again when the learning rules change, so a fixed
   rule also learns what was said before it was fixed (`integrations.hooks.consolidate`).
 
-Episodes are never searched as notes, never deleted, and never overrule a note.
+Episodes are never searched as notes and never overrule a note; once Haiku judged one as teaching nothing, it is
+deleted (`MemoryStore.forget_noise`).
 """
 
 from __future__ import annotations

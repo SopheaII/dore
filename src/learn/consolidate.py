@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from dore.learn.judge import (REFINE, Block, BlockVerdict, Item, JudgeError, Verdict, block_text, grounded, judge_all,
                               letter, parse_refine)
-from dore.learn.statements import COMPACT_SUMMARY, ECHO, entry, message_parts
+from dore.learn.statements import COMPACT_SUMMARY, ECHO, entry, message_parts, promoted
 
 MIN_WORDS, MAX_WORDS = 3, 200  # shorter: "yes"; real run-ons over 60 words held rules (43 in all history, ~5k tokens)
 MAX_MESSAGE_CHARS = 3000       # a longer message is a paste (log, document): 86% of real sentences came from these
@@ -263,6 +263,8 @@ def _apply(store, v: Verdict, s: Said, batch: list[Said], made: dict[int, int], 
         stats["dropped"] += 1
         return None
     project = s.project if v.scope == "project" else ""
+    if v.action != "update" and promoted(store, v.text, s.text, project):
+        project = ""
     if v.action != "update" and (old := store.same_words(v.text, project)) is not None:
         store.said_again(old, s.created, s.session)
         if v.action == "rule":  # the note made at once by the word rules: Haiku's judgement and words win

@@ -166,7 +166,6 @@ function uninstall() {
     fail(`could not remove ${VENV} (dore's helper may still be running). Close Claude Code, wait a minute, and run uninstall again.`);
   }
   say("removed the plugin and the Python environment.");
-  // dore never deletes memories: the notes stay unless the user removes them.
   console.log(`  Your memory was kept in ${DATA}. Delete that folder yourself if you want it gone.`);
 }
 

@@ -5,7 +5,7 @@ dore is a local memory for Claude Code and other coding agents that keeps learni
 ## Rules (do not break)
 
 - **No model training** (dropped by the user). Facts live in fast memory only; the core LLM never changes.
-- **Never hard-delete a memory.** Low-score notes are archived; protected notes are never archived automatically. Replaced or wrong notes stay in SQLite.
+- **Delete noise, keep the truth.** Noise is deleted for good once Haiku has judged it (`MemoryStore.forget_noise`, after each batch; the user's choice, 2026-11-27): archived notes (junk, never used) and raw sentences that taught nothing. Kept: notes marked wrong and old replaced values (so they never come back as truth), protected notes (never archived automatically) and anything another note points to.
 - **Trust levels**: `verified` (passed a test, or stated or confirmed by the user), `unverified` (search results, unchecked answers, agent-written facts), `wrong` (kept, never returned as truth). An agent or unverified note never overrules a user's verified fact.
 - **Newer wins** when two notes conflict; store dates on everything.
 - **Draft-check-fix loops only with a real checker** (run the code, check the maths); otherwise answer once.
@@ -66,7 +66,7 @@ Success = `bench stream`: correct up, stale/leak/junk/repeat mistakes down, toke
    (worktrees and subfolders share it), not its folder name; scope belongs to what a fact is about, not its wording;
    updates stay in their level; levels user / workspace / repo / home, most specific wins; promotion by evidence
    (same value in 2+ repos; project copies kept, linked; one repo's names/paths/IDs never go general); no
-   cross-project fallback; the user can move a note's scope. Steps S1–S5 in the plan, one at a time; S1 (project = git repo, start folder without git), S2 (updates keep their scope, no cross-project notes), S3 safe part (where a fact was said decides who its change reaches) done 2026-11-26.
+   cross-project fallback; the user can move a note's scope. Steps S1–S5 in the plan, one at a time; S1 (project = git repo, start folder without git), S2 (updates keep their scope, no cross-project notes), S3 safe part (where a fact was said decides who its change reaches) done 2026-11-26; S4 part done 2026-11-27: the user's setup said in a second project becomes general, and Haiku scopes by what a note is about (real coding chats: DevGPT global notes 73 -> 43).
 5. Retrieval: topic keys done (2026-11-26, retrieval 5/8 -> 7/8; `bge-base-en-v1.5` measured: +1 to +3 points for 2x hook time, not adopted). Measured 2026-11-27, not adopted (user): an index of facts at a session start (notes that apply reached the model 12/39 -> 32/39, ~75 tokens a session). Left: synonym questions ("What is my job?" vs "I work as a nurse"), notes that apply by situation, profile card (once per session), small reranker.
 5b. Long messages as groups (plan: [long-text-groups](.agents/plans/long-text-groups.md), 2026-11-27): a list is a
    title + entries word for word; Haiku judges every paste and long message whole; a question gets the matching entry +

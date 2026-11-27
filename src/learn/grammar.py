@@ -53,6 +53,8 @@ CUT_AT = {"but", "so", "because", "since", "though", "although", "however"}
 MAX_FACT_WORDS = 20  # lasting facts are short (longest in the test sets: 14); longer = a run-on
 SUBORDINATE = {"because", "since", "after", "before", "when", "whenever", "while", "if", "unless", "although",
                "though", "until", "once", "so", "cause", "coz", "cuz", "bc"}
+# A condition or time clause makes "you" anyone ("the API returns 401 when you send no token").
+GENERIC_YOU = SUBORDINATE - REASON - {"so", "although", "though"}
 # Standing "don't" instructions are lasting preferences, polite or not ("please don't reformat existing
 # code", "i don't want debug logs in commits", "do not touch the payment module"): found as repeated in real use.
 STANDING_DONT = re.compile(r"^(?:(?:please|pls|plz|kindly)\s+)?(?:(?:i|we)\s+(?:really\s+)?(?:don'?t|do not|never)\s+"
@@ -144,6 +146,22 @@ def _mental(t) -> bool:
 def _volition(t) -> bool:
     forms = {t.lemma_.lower(), t.lower_}
     return bool(forms & VOLITION) or (_content(t) and any(_close(x, VOLITION) for x in forms))
+
+
+def _assistant_clauses(doc) -> list:
+    """Verbs whose subject is "you", the assistant, in any clause: what Claude did or does. Not the generic "you"
+    of how things work: with a modal, in a condition or time clause, or in a present-tense clause that names a
+    thing ("the files you open", "from what you type"; but "the file you changed", "before how you get 3000")."""
+    out = []
+    for t in doc:
+        if t.dep_ in SUBJ and t.lower_ == "you" and t.head.pos_ in ("VERB", "AUX"):
+            v, kids = t.head, list(t.head.children)
+            names_thing = (v.head.pos_ in ("NOUN", "PROPN", "PRON", "ADP") and v.tag_ in ("VBP", "VBZ")
+                           and not any(c.tag_ == "WRB" and c.lower_ not in GENERIC_YOU for c in kids))
+            if not names_thing and not any(c.tag_ == "MD" for c in kids) and not any(
+                    c.dep_ in ("mark", "advmod") and c.lower_ in GENERIC_YOU for c in kids):
+                out.append(v)
+    return out
 
 
 def _clause_is_fact(head, tokens) -> bool:
@@ -251,7 +269,9 @@ def fact_text(sentence: str) -> str | None:
         # ("we self-host sentry, so please check the dsn" -> "we self-host sentry").
         for part in SEGMENT.split(sentence):
             words_ = part.split()
-            cut = next((i for i, w in enumerate(words_) if POLITE.match(re.sub(r"\W", "", w))), len(words_))
+            # Same word pieces as the check above ("coming.please"), so the part always loses its marker.
+            cut = next((i for i, w in enumerate(words_) if any(POLITE.match(p) for p in re.findall(r"[A-Za-z]+", w))),
+                       len(words_))
             part = CONNECTIVE.sub("", " ".join(words_[:cut])).strip(" ,;")
             if len(part.split()) < 3:
                 continue
@@ -269,8 +289,9 @@ def fact_text(sentence: str) -> str | None:
     words = [t for t in doc if not t.is_punct]
     if len(words) > 1 and words[0].lower_ in FIRST and any(_mental(w) or _volition(w) for w in words[1:4]):
         return ""
-    # A run-on or a question ("..., right", "... or not"): only a short separate clause can be kept.
-    whole_ok = len(words) <= MAX_FACT_WORDS and not TAG_QUESTION.search(sentence)
+    # A run-on, a question ("..., right", "... or not") or a remark on what the assistant did ("..., but you used
+    # npm"): only a short separate clause can be kept.
+    whole_ok = len(words) <= MAX_FACT_WORDS and not TAG_QUESTION.search(sentence) and not _assistant_clauses(doc)
     if words and words[0].lower_ in SUBORDINATE:
         return ""  # "Because ...", "After I click ...": hangs off something said before  # "I mean ...", "I think ...", "I want ...": whatever the parser made the root
     for sent in doc.sents:  # the caller already split sentences; spaCy may split further
@@ -511,7 +532,8 @@ def _past_action(verb) -> bool:
 
 def asks(sentence: str) -> bool:
     """A question anywhere in the sentence, with or without "?": an auxiliary or modal right before
-    its own subject ("... should i add X or not", "so can we keep it"), or an "or not" tag."""
+    its own subject ("... should i add X or not", "so can we keep it"), an "or not" tag, or a question word
+    in a clause about what the assistant does, the auxiliary left out ("... why you use npm")."""
     if TAG_QUESTION.search(sentence):
         return True
     parser = nlp()
@@ -519,7 +541,8 @@ def asks(sentence: str) -> bool:
         return False
     doc = parser(sentence)
     return any(a.pos_ == "AUX" and a.i + 1 < len(doc) and doc[a.i + 1].dep_ in SUBJ
-               and doc[a.i + 1].head == a.head and a.head.i > a.i for a in doc)
+               and doc[a.i + 1].head == a.head and a.head.i > a.i for a in doc) or any(
+        any(t.tag_ in WH and t.i < v.i for t in v.subtree) for v in _assistant_clauses(doc))
 
 
 def tells(sentence: str) -> bool:
@@ -534,6 +557,12 @@ def tells(sentence: str) -> bool:
     root = next(doc.sents).root
     return (any(c.dep_ in SUBJ for c in root.children) and not any(POLITE.match(t.text) for t in doc)
             and not asks(sentence))
+
+
+def values(text: str) -> frozenset:
+    """The concrete values a sentence names (`_detail` per word), lowercased: {"pnpm"} for "I use pnpm"."""
+    parser = nlp()
+    return frozenset(t.lower_ for t in parser(text) if _detail([t])) if parser is not None else frozenset()
 
 
 def has_detail(text: str) -> bool:
