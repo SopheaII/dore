@@ -101,6 +101,8 @@ class MemoryStore:
         self.db.execute("CREATE TABLE IF NOT EXISTS provisional (note_id INTEGER PRIMARY KEY, episodes TEXT NOT NULL)")
         self.db.execute("CREATE TABLE IF NOT EXISTS note_sessions (note_id INTEGER NOT NULL, session TEXT NOT NULL, "
                         "PRIMARY KEY (note_id, session))")
+        # A rule that repeats another and adds a detail (`learn.consolidate.refine`): one family, one line at a start.
+        self.db.execute("CREATE TABLE IF NOT EXISTS rule_links (note_id INTEGER PRIMARY KEY, parent INTEGER NOT NULL)")
         had_fts = self.db.execute(
             "SELECT 1 FROM sqlite_master WHERE name='memories_fts'").fetchone() is not None
         self.db.executescript(FTS_SCHEMA)
@@ -835,6 +837,24 @@ class MemoryStore:
             self.db.execute(f"UPDATE episodes SET scope=? WHERE scope IN ({q})", (new, *old))
             self.db.commit()
         return n
+
+    def link_rule(self, child: int, parent: int):
+        with self._lock:
+            self.db.execute("INSERT OR REPLACE INTO rule_links (note_id, parent) VALUES (?, ?)", (child, parent))
+            self.db.commit()
+
+    def rule_family(self) -> dict[int, int]:
+        """Each linked rule's first ancestor: {note id: family root}."""
+        with self._lock:
+            up = dict(self.db.execute("SELECT note_id, parent FROM rule_links").fetchall())
+        root = {}
+        for i in up:
+            r, seen = i, {i}
+            while r in up and up[r] not in seen:
+                r = up[r]
+                seen.add(r)
+            root[i] = r
+        return root
 
     def mark_said_in(self, ids: list[int], project: str):
         """Record the project the user said these notes in (a general note keeps where it came from)."""

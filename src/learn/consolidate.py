@@ -7,10 +7,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from dore.learn.judge import Block, BlockVerdict, Item, Verdict, block_text, grounded, judge_all
+from dore.learn.judge import (REFINE, Block, BlockVerdict, Item, JudgeError, Verdict, block_text, grounded, judge_all,
+                              letter, parse_refine)
 from dore.learn.statements import COMPACT_SUMMARY, ECHO, entry, message_parts
 
-MIN_WORDS, MAX_WORDS = 3, 60   # shorter: "yes", "ok do"; longer: a task or a paste, kept in raw memory only
+MIN_WORDS, MAX_WORDS = 3, 200  # shorter: "yes"; real run-ons over 60 words held rules (43 in all history, ~5k tokens)
 MAX_MESSAGE_CHARS = 3000       # a longer message is a paste (log, document): 86% of real sentences came from these
 MAX_PER_MESSAGE = 20
 QUESTION_WORDS = 12            # a shorter question has no room for a fact beside it ("..., since I use X?"); +24%
@@ -20,6 +21,8 @@ BLOCK_CHARS = 8000             # block text per call
 RAW_CHARS = 200_000            # a longer message is kept cut to this in raw memory
 NEAR = 0.6                     # an existing note this close is offered to Haiku as "maybe the same thing"
 NEIGHBOURS = 3
+SAME_RULE = 0.95  # near-identical wording only: a real rule and the same rule plus a new detail scored 0.86
+ASK_RULE, ASK_RULES = 0.70, 5  # real pairs: repeats in other words 0.74-0.84, different rules Haiku joined 0.57-0.58
 
 _SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 
@@ -85,7 +88,8 @@ def batches(queue: list[Said]) -> list[list[Said]]:
 def _neighbours(store, s: Said) -> list[tuple[int, str]]:
     hits = store.search(s.text, k=NEIGHBOURS, min_similarity=NEAR, project=s.project or None, touch=False,
                         keyword=False)
-    return [(m.id, m.content) for m in hits if m.kind in ("statement", "fact", "correction")]
+    # Saved rules are matched after the call (`refine`), by a stricter test: shown here, Haiku joined different rules.
+    return [(m.id, m.content) for m in hits if m.kind in ("statement", "fact", "correction") and not store.is_rule(m.id)]
 
 
 def items_for(store, batch: list[Said]) -> list[Item]:
@@ -141,6 +145,7 @@ def consolidate(store, batch: list[Said], ask) -> dict:
         part_stats = apply(lambda n: store, items, lines, sentence_verdicts)
         for k in ("notes", "rules", "same", "updates", "skipped", "dropped"):
             stats[k] += part_stats[k]
+        stats["new_rules"] = part_stats.get("new_rules", [])
         stats["lines"].update({number[k - 1]: ids for k, ids in part_stats["lines"].items()})
     for verdicts, _ in results:
         for n, vs in verdicts.items():
@@ -149,7 +154,10 @@ def consolidate(store, batch: list[Said], ask) -> dict:
                 stats["lines"][n] = ids
             else:
                 stats["skipped"] += 1
-    for _, u in results:
+    joined, u_refine = refine(store, stats.pop("new_rules", []), ask)
+    stats["joined"] = len(joined)
+    stats["lines"] = {n: [joined.get(i, i) for i in ids] for n, ids in stats["lines"].items()}
+    for _, u in results + ([(None, u_refine)] if u_refine else []):
         for k in ("input", "output", "usd", "ms"):
             usage[k] = usage.get(k, 0) + u.get(k, 0)
         usage["calls"] = usage.get("calls", 0) + u.get("calls", 1)
@@ -157,6 +165,57 @@ def consolidate(store, batch: list[Said], ask) -> dict:
     stats["usage"] = usage
     store.save()
     return stats
+
+
+def refine(store, new: list[tuple[int, Said]], ask) -> tuple[dict[int, int], dict]:
+    """A new rule note that repeats a saved rule joins it: the saved rule counts as said again and the new note is
+    replaced by it (kept). Very close meaning joins by code; a close one gets one Haiku question that shows each
+    close saved rule once (`judge.REFINE`), never the lines said before; a far one stays its own rule. A repeat that
+    adds a detail stays its own rule and counts as the saved one said again (merging would lose the detail). Returns
+    {new id: saved id} and the call's usage."""
+    joined: dict[int, int] = {}
+    pending: list[tuple[int, Said, list]] = []
+    new_ids = {i for i, _ in new}
+    for nid, s in new:
+        m = store.get(nid)
+        saved = [r for r in store.rule_notes(s.project) if r.id not in new_ids and r.project in (m.project, "")]
+        if not saved:
+            continue
+        sims = [float(store._vector(r.id) @ store._vector(nid)) for r in saved]
+        ranked = sorted(range(len(saved)), key=lambda k: -sims[k])
+        if sims[ranked[0]] >= SAME_RULE:
+            _join(store, nid, saved[ranked[0]].id, s, joined)
+        elif near := [saved[k] for k in ranked[:ASK_RULES] if sims[k] >= ASK_RULE]:
+            pending.append((nid, s, near))
+    if not pending:
+        return joined, {}
+    heads = list({r.id: r for _, _, saved in pending for r in saved}.values())
+    text = ("\n".join(f"G{k + 1}: {' '.join(r.content.split())}" for k, r in enumerate(heads)) + "\n\nNew lines:\n"
+            + "\n".join(f"{letter(k)}: {' '.join(store.get(nid).content.split())}"
+                        for k, (nid, _, _) in enumerate(pending)))
+    try:
+        answer, usage = ask(text, REFINE)
+    except JudgeError:
+        return joined, {}  # nothing joined: each stays its own rule until a later batch
+    said = parse_refine(answer, len(pending), len(heads))
+    at = {letter(k): nid for k, (nid, _, _) in enumerate(pending)}
+    for k, (nid, s, saved) in enumerate(pending):
+        kind, ref = said.get(letter(k), ("new", None))
+        if kind == "adds" and heads[ref].id in {r.id for r in saved}:
+            store.said_again(heads[ref].id, s.created, s.session)  # the topic said again; its new detail stays its own
+            store.link_rule(nid, heads[ref].id)
+            continue
+        target = heads[ref].id if kind == "saved" else joined.get(at[ref], at[ref]) if kind == "same" else None
+        allowed = {r.id for r in saved} | set(at.values())
+        if target is not None and target in allowed and target != nid:
+            _join(store, nid, target, s, joined)
+    return joined, usage
+
+
+def _join(store, nid: int, old: int, s: Said, joined: dict[int, int]):
+    store.said_again(old, s.created, s.session)
+    store.replace(nid, old)
+    joined[nid] = old
 
 
 def _apply_block(store, v: BlockVerdict, s: Said, stats: dict) -> list[int]:
@@ -192,6 +251,9 @@ def _apply(store, v: Verdict, s: Said, batch: list[Said], made: dict[int, int], 
         nid = v.ref if v.ref is not None else made.get(v.line or 0)
         if nid is None:
             return None
+        if v.ref is None and len(ids := stats["lines"].get(v.line, [])) > 1:  # that line gave several notes: the closest
+            vec = store.embedder.embed([s.text])[0]
+            nid = max(ids, key=lambda i: float(store._vector(i) @ vec))
         same_session = v.line is not None and batch[v.line - 1].session == s.session
         if not same_session:  # a repeat in the same session is the same moment, not lasting evidence
             store.said_again(nid, s.created, s.session)
@@ -215,6 +277,7 @@ def _apply(store, v: Verdict, s: Said, batch: list[Said], made: dict[int, int], 
     if v.action == "rule":
         store.set_rule_words(nid, v.when, v.forbid)
         stats["rules"] += 1
+        stats.setdefault("new_rules", []).append((nid, s))
     if v.action == "update" and v.ref is not None:
         store.replace(v.ref, nid, project_only=s.project if project else None)
         stats["updates"] += 1

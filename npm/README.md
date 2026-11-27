@@ -20,36 +20,33 @@ npx dore-memory install     # sets up dore and its Claude Code plugin, then open
 
 ## Why dore
 
-**Problem:** Claude Code forgets everything when you start a new session, so you explain the same things again and again.
+Claude Code forgets everything between sessions, so you explain the same things again and again. dore fixes that:
 
-**Solution:** dore gives Claude a memory that works like yours:
-
-- 👂 **It listens.** When you tell Claude a fact ("our staging server uses port 8443"), dore saves it.
-  You don't need to say "remember this".
-- 💡 **It reminds.** When you ask about it later, even in a new session, dore hands Claude that note before it answers.
-- 🔄 **It updates.** When a fact changes ("the staging port is now 9443"), the new fact replaces the old one.
-- 🗂️ **It keeps things in place.** Facts about you (your name, how you like to work) are used in every project.
-  Facts about one project (its port, its database) stay in that project.
+- 👂 **It listens.** Tell Claude a fact ("our staging server uses port 8443") — no "remember this" needed.
+- 💡 **It reminds.** Ask about it later, even in a new session, and dore puts that note in front of Claude first.
+- 🔄 **It updates.** A new value ("the port is now 9443") replaces the old one.
+- 🗂️ **It keeps things in place.** Facts about you follow you into every project; facts about one project stay there.
 
 ## How is it different from other memory tools?
 
-Most memory tools let the AI manage the memory: the AI decides what to save, and then either loads the whole
-memory into every message or has to search it. That costs tokens, and if the AI forgets to save, the fact is lost.
+Most memory tools ask the AI to keep the notebook: it decides what to save, then searches it or loads all of it
+into every message. You pay tokens for both, and the fact is lost when the model forgets to write it down.
 
-dore manages the memory itself, outside the AI:
+**dore keeps that work outside the model:** local rules in a hook decide what to save in ~13 ms for **0 Claude
+tokens**, and Claude only reads the few notes that match your message — nothing when nothing matches.
 
 | | Usual memory tools | dore |
 |---|---|---|
-| Who decides what to save | The AI (costs tokens, and it can forget) | dore, from what you type: local rules (free), or, if you turn it on, Haiku in one small batch a day |
-| What Claude receives | The whole memory, or what the AI searched for | Only the notes that match your message (usually none), plus your standing rules once per session |
-| When a fact changes | Old and new notes may both stay | The old note is replaced |
-| When notes disagree | No rule | What you said wins over what the AI guessed |
-| Where it runs | Sometimes a cloud service | On your computer (with Haiku learning on, what you type and paste also goes to Haiku, at a session end) |
+| Who decides what to save | The AI (costs tokens, can forget) | Local rules, free (or optional Haiku) |
+| What Claude receives | Everything, or what the AI searched | Only matching notes (plus rules once a session) |
+| Conflicting notes | Old and new may both stay | New beats old; you beat the AI |
+| Where facts belong | No rule | You vs. project, kept apart |
+| Where it runs | Sometimes a cloud service | On your computer; notes stay local |
 
-Learning adds a few ms to each message. By default it costs 0 Claude tokens (local word rules). If you say yes at
-install, dore learns better with Claude Haiku instead: at a session end with enough waiting (about 30 sentences, or 3
-hours after you said it), one batch (about 6k Haiku tokens a day on one real history, an estimate) sorts what you typed and pasted into facts,
-rules, lists and noise. Never while you work.
+Learning adds a few ms per message and costs 0 Claude tokens by default. Opt into Haiku and, when a session ends
+with enough waiting (about 30 sentences, or 3 hours after you said it), one batch sends what you typed and pasted (not Claude's
+replies) to Haiku to sort it into facts, rules, lists and noise — about 6k tokens a day on one real history (estimate), never
+while you work.
 
 ## See it work in Claude Code
 
@@ -141,24 +138,15 @@ It also works with opencode and other MCP agents.
 
 ## How it works
 
-1. **You type a message** in Claude Code. dore's hook reads it before Claude does.
-2. **If it tells a fact** ("our staging port is 8443"), dore saves it as a note on your machine.
-   Questions and requests are not saved.
-3. **If it asks about something dore knows**, the hook adds the matching notes (a few lines) to your
-   message, so Claude can answer. If nothing matches, nothing is added (0 tokens).
-4. **If a fact changes** ("the port is now 9443"), the newer note replaces the old one.
-5. **Rules you repeat** ("never use tabs", said in two sessions, in any words) or that Claude keeps following start
-   each new session, in a few lines at most; rules you stop repeating fade, like habits, and still come back when a
-   message matches them.
+![How dore works: learn, recall, update, rules like habits, Haiku review](https://raw.githubusercontent.com/SopheaII/dore-memory/master/docs/images/how-it-works.svg)
 
-With Haiku learning on, steps 2 and 4 still happen at once (so it works from your very first session), and Haiku
-reviews them afterwards: at a session end with enough waiting, dore sends what you typed, and the start and end of
-anything long you pasted (code and logs included; not Claude's replies), to Haiku through your own `claude` command.
-A pasted list is kept whole; a log or error is dropped. Haiku says which are lasting facts or rules, which repeat or update an
-existing note, and which are noise; a quick note it doesn't agree with is archived. Nothing is deleted; an old note is hidden only when a second check agrees
-it is out of date. Offline or at your plan's limit, the sentences wait and are tried again later.
-
-Without Haiku, learning runs locally with small models: no Claude tokens, and your memory never leaves your machine.
+- **Learn:** dore reads each message before Claude does and keeps facts and rules. It skips questions and requests.
+- **Recall:** it adds only the notes that match your message. Nothing matches, nothing is added.
+- **Update:** a new value replaces the old one. The old note is hidden, never deleted.
+- **Rules like habits:** a rule you repeat or Claude follows gets stronger and starts each session; unused ones fade.
+- **Haiku review (optional):** at a session end, Haiku checks what you typed and pasted (not Claude's replies)
+  and keeps, merges or archives notes; a pasted list is kept whole, a log or error is dropped. Without it,
+  everything runs locally for 0 Claude tokens.
 
 ## Privacy
 

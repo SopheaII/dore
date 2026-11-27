@@ -29,7 +29,7 @@ def score_messages(cases, embedder, ask, usage: list) -> dict:
     """Each case in its own store (no neighbours), many cases per call."""
     from dore.learn.consolidate import BATCH, Said, apply, sentences
     from dore.learn.judge import Item, judge
-    s = {"facts": 0, "learned": 0, "scoped": 0, "skips": 0, "junk": 0, "rules": 0, "fails": []}
+    s = {"facts": 0, "learned": 0, "scoped": 0, "skips": 0, "junk": 0, "hidden": 0, "rules": 0, "fails": []}
     lines = []  # (case index, Said)
     cases = [c for c in cases if c[1] is not None]
     for k, (text, _, _, _) in enumerate(cases):
@@ -58,8 +58,10 @@ def score_messages(cases, embedder, ask, usage: list) -> dict:
                 s["fails"].append(("missed" if not hit else "wrong scope", text, notes))
         else:
             s["skips"] += 1
-            s["junk"] += bool(notes)
-            if notes:
+            shown = [g for g in notes if not g[2]]  # a rule said once waits, hidden, for a repeat (`on_trial`)
+            s["junk"] += bool(shown)
+            s["hidden"] += bool(notes) and not shown
+            if shown:
                 s["fails"].append(("junk", text, notes))
     return s
 
@@ -104,10 +106,11 @@ def main(argv: list[str] | None = None):
         real = [(r["text"], r["expect"], r.get("scope"), r.get("style", "real"))
                 for f in REAL_LABELS if f.exists() for r in json.loads(f.read_text())]
         scores["REAL (private)"] = score_messages(real, emb, Recorded(REAL_ANSWERS, live), usage)
-    print("| Set | Facts learned, right scope | Facts learned | Junk stored | Rules made |\n|---|---|---|---|---|")
+    print("| Set | Facts learned, right scope | Facts learned | Junk stored (shown) | Hidden rule lines | Rules made |\n"
+          "|---|---|---|---|---|---|")
     for name, s in scores.items():
         print(f"| {name} | {s['scoped']}/{s['facts']} | {s['learned']}/{s['facts']} | {s['junk']}/{s['skips']} "
-              f"| {s['rules']} |")
+              f"| {s['hidden']}/{s['skips']} | {s['rules']} |")
     u = score_updates(emb, ask, usage)
     print(f"\n| Check | Result |\n|---|---|\n| Updates (replace or keep both, right) | {u['ok']}/{u['n']} "
           f"(old note not stored: {u['unstored']}) |")

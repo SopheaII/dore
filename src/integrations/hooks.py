@@ -214,10 +214,17 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
         # One budget per session for rules no message asked for (the old block's maximum, ~150 tokens), so the
         # README's "only the notes that match your message" stays true; no count: short rules, more of them.
         # The strongest and closest to the first prompt win; the rest are still found when a message matches.
-        room, pending = RULES_PER_SESSION, []
-        for m in rules_in_mind(store, project, shown | in_notes, vec):
+        room, pending, family, picked = RULES_PER_SESSION, [], store.rule_family(), set()
+        in_mind = rules_in_mind(store, project, shown | in_notes, vec)
+        heads = {m.id for m in in_mind}
+        for m in in_mind:
             size = len(_line(m.id, m.content, created=m.created, limit=len(m.content))) + 1
-            if size <= room:
+            # One line per family: its head (the rule first said) when strong enough, else its strongest repeat with a
+            # detail; the others come when a message matches.
+            if family.get(m.id, m.id) in heads - {m.id}:
+                continue
+            if size <= room and family.get(m.id, m.id) not in picked:
+                picked.add(family.get(m.id, m.id))
                 pending.append(m.id)
                 room -= size
     rows = store.get_many(pending) if pending else {}

@@ -60,13 +60,13 @@ def test_facts_rules_and_scope(tmp_path):
 
 def test_said_again_counts_once_per_session_in_any_words(tmp_path):
     s = store(tmp_path)
-    consolidate(s, [Said("never push straight to main", "p", "a", 1.0)], Fake("1 rule project: Never push to main."))
-    i = s.same_words("Never push to main.", "p")
-    consolidate(s, [Said("dont push to main ok", "p", "a", 2.0)], Fake(f"1 same #{i}"))  # same session: no count
+    consolidate(s, [Said("the api runs on port 8080", "p", "a", 1.0)], Fake("1 fact project: The API runs on port 8080."))
+    i = s.same_words("The API runs on port 8080.", "p")
+    consolidate(s, [Said("api is on port 8080 ok", "p", "a", 2.0)], Fake(f"1 same #{i}"))  # same session: no count
     assert s.get(i).times_seen == 1
-    hits = s.search("Never push to main.", k=1, project="p", touch=False)
+    hits = s.search("The API runs on port 8080.", k=1, project="p", touch=False)
     assert hits and hits[0].id == i
-    consolidate(s, [Said("main is protected, never push there", "p", "b", 3.0)], Fake(f"1 same #{i}"))
+    consolidate(s, [Said("port 8080 is where the api runs", "p", "b", 3.0)], Fake(f"1 same #{i}"))
     assert s.get(i).times_seen == 2  # another session, other words: the repeat counts
 
 
@@ -247,3 +247,104 @@ def test_a_line_haiku_did_not_answer_waits_for_the_next_batch(tmp_path):
     learner.run_once(s, Fake("1 fact project: The staging api runs on port 8443."), ended=True)
     assert [c for _, c, *_ in learner.queued(s)] == ["thsi are too many button and some are not need"]
     assert all(not m.archived for m in s.get_many(made).values())  # not judged yet: its note stays
+
+
+class Refining(Fake):
+    def __init__(self, lines, refine):
+        super().__init__(lines)
+        self.refine = refine
+
+    def __call__(self, prompt, system=SYSTEM):
+        from dore.learn.judge import REFINE
+        if system == REFINE:
+            self.asked.append((system, prompt))
+            return self.refine, {"input": 1, "output": 1, "usd": 0.0}
+        return super().__call__(prompt, system)
+
+
+def _saved_rule(s, monkeypatch=None):
+    if monkeypatch:  # HashEmbedder can't score meaning: every saved rule counts as close enough to ask about
+        import dore.learn.consolidate as C
+        monkeypatch.setattr(C, "ASK_RULE", -1.0)
+    consolidate(s, [Said("please never run the migrations for me", "shop", "a", 1.0)],
+                Fake("1 rule user: Never run the migrations for me. | when: migrate | not:"))
+    return s.rule_notes("shop")[0]
+
+
+def test_a_rule_said_again_in_other_words_joins_the_saved_one(tmp_path, monkeypatch):
+    s = store(tmp_path)
+    old = _saved_rule(s, monkeypatch)
+    ask = Refining("1 rule user: Do not run migrations; I run them myself. | when: migrate | not:", "a G1")
+    st = consolidate(s, [Said("build it but no migrations, I run those myself", "shop", "b", 2.0)], ask)
+    system, prompt = ask.asked[-1]
+    assert "G1: Never run the migrations for me." in prompt and "please never run" not in prompt  # head only
+    assert [r.id for r in s.rule_notes("shop")] == [old.id] and s.get(old.id).times_seen == 2
+    assert st["lines"][1] == [old.id] and st["joined"] == 1
+    new = [m for m in s.get_many(list(range(1, 10))).values() if m.id != old.id][0]
+    assert new.replaced_by == old.id  # kept, not deleted
+
+
+def test_a_related_but_different_rule_stays_its_own(tmp_path, monkeypatch):
+    s = store(tmp_path)
+    _saved_rule(s, monkeypatch)
+    ask = Refining("1 rule user: Run migrations only after a database backup. | when: migrate | not:", "a new")
+    consolidate(s, [Said("run migrations only after a db backup", "shop", "b", 2.0)], ask)
+    assert len(s.rule_notes("shop")) == 2
+
+
+def test_a_rule_repeated_in_the_same_session_is_not_proven(tmp_path, monkeypatch):
+    s = store(tmp_path)
+    old = _saved_rule(s, monkeypatch)
+    consolidate(s, [Said("no migrations from you please", "shop", "a", 2.0)],
+                Refining("1 rule user: No migrations from you. | when: migrate | not:", "a G1"))
+    assert s.get(old.id).times_seen == 1
+
+
+def test_a_failed_refine_call_keeps_each_rule(tmp_path, monkeypatch):
+    from dore.learn.judge import REFINE, JudgeError
+    s = store(tmp_path)
+    _saved_rule(s, monkeypatch)
+
+    def ask(prompt, system=SYSTEM):
+        if system == REFINE:
+            raise JudgeError("failed")
+        return "1 rule user: No migrations from you. | when: migrate | not:", {"input": 1, "output": 1}
+    consolidate(s, [Said("no migrations from you please", "shop", "b", 2.0)], ask)
+    assert len(s.rule_notes("shop")) == 2
+
+
+def test_a_far_rule_is_not_asked_about_and_reasoning_is_not_an_answer(tmp_path):
+    from dore.learn.judge import parse_refine
+    s = store(tmp_path)
+    _saved_rule(s)
+    ask = Refining("1 rule user: Keep answers short. | when: answer | not:", "a G1")
+    consolidate(s, [Said("keep your answers short", "shop", "b", 2.0)], ask)
+    assert len(s.rule_notes("shop")) == 2 and len(ask.asked) == 1  # not close: no refine call
+    assert parse_refine("a: G1 same? No, a different action.\n\na new", 1, 1) == {}
+    assert parse_refine("a G1", 1, 1) == {"a": ("saved", 0)}
+
+
+def test_a_repeat_with_a_new_detail_stays_its_own_and_proves_the_saved_one(tmp_path, monkeypatch):
+    from dore.learn.judge import parse_refine
+    s = store(tmp_path)
+    old = _saved_rule(s, monkeypatch)
+    ask = Refining("1 rule user: Run migrations only inside a transaction. | when: migrate | not:",
+                   "a G1 adds: only inside a transaction")
+    consolidate(s, [Said("migrations only inside a transaction", "shop", "b", 2.0)], ask)
+    assert len(s.rule_notes("shop")) == 2 and s.get(old.id).times_seen == 2
+    assert parse_refine("a G1 adds: who commits", 1, 1) == {"a": ("adds", 0)}
+    assert parse_refine("a G1 adds: x\na new", 1, 1) == {}
+
+
+def test_a_long_run_on_sentence_is_judged():
+    long = "the settings page feels slow and cluttered on small laptops " * 8 + "please check it on a phone too"
+    assert sentences(long) == [long]
+
+
+def test_same_as_a_line_with_two_notes_is_the_closer_one(tmp_path):
+    s = store(tmp_path)
+    st = consolidate(s, [Said("do not touch the billing-sync module and check the numbers, do not guess", "p", "a", 1.0),
+                         Said("please check the numbers, do not guess", "p", "a", 1.0)],
+                     Fake("1 rule project: Do not touch the billing-sync module.\n1 rule project: Check the numbers; do not guess.\n"
+                          "2 same @1"))
+    assert s.get(st["lines"][2][0]).content == "Check the numbers; do not guess."

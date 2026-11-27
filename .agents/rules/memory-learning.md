@@ -90,6 +90,17 @@ the user uses dore only through coding agents. Their findings are in git history
 - Left: a request written as a question ("can you add …?") counts as a question, so a note on trial can be tried
   there (it is archived if never used).
 
+## Facts by situation, not by likeness: measured, not adopted (2026-11-27)
+
+- Search finds a note only when the message sounds like it; a note that applies by situation never comes
+  (a one-line feature request vs a security rule for every new feature: no shared words). Labelled real prompts
+  (26, my labels):
+  today's search 12/39 notes that apply; "applies when" keys written by Haiku 20/39 with 15 wrong; an index of every
+  fact at the session start, the model picking, 32/39 (Haiku as the reader) for ~75 more tokens a session
+  (`eval.stream` tokens per work prompt 0.8 -> 3.5). Built, then removed by the user (2026-11-27): facts Claude
+  doesn't need should not be loaded. Skills-style topic titles opened on demand (63 notes): 23/39 for ~277 tokens a
+  task (1.8 tool calls) vs full lines 17/39 for ~145: a note (~14 tokens) is too small for a pointer to save tokens.
+
 ## Rules come to mind like habits (2026-11-26)
 
 - **An instruction is known by its form, lasting by evidence** (2026-11-26; the "never/must/decided/limit" word list is
@@ -235,6 +246,26 @@ Measured 2026-11-25 (`dore.eval.learning`, `dore.eval.stream seeds 5`):
   note (it had counted as skip). Nothing is applied until every call of a batch has answered.
 - Haiku answers vary run to run (updates 29-35/35 across prompt versions): judge a prompt change on HELDOUT, more
   than one run when the difference is small.
+- **A rule is any instruction about how to work or answer, lasting by evidence** (2026-11-27): Haiku keeps an
+  instruction said inside a task request too, in the user's words, <= 60 chars (not what to build in the product); it
+  stays hidden on trial until said again in another session. DEV facts 56/62 (59 before; the same batch asked twice
+  kept and dropped the same two facts), junk 1/81, hidden rule lines 6/81, HELDOUT 43/46, junk 0/46, updates 34/35.
+- **Rule repeats are matched after the call, against one line per saved rule** (`consolidate.refine`, `judge.REFINE`;
+  ExpeL/ACE-style; research: similarity can't tell "the same rule" from "related, with a new detail", and merging
+  loses the detail, MEMOIR/Mem0 keep both): saved rules are no longer offered as neighbours (Haiku said "same #id"
+  for a different rule). Code joins only near-identical wording (>= 0.95); saved rules >= 0.70 close (at most 5) go
+  to one Haiku question with three answers: same (joined: replaced, kept; the saved rule said again), **adds a
+  detail** (stays its own rule, linked to the saved one in `rule_links`; the saved one counts as said again), new.
+  Only an answer line alone counts (Haiku reasons, then answers). A session start shows one line per family, its head
+  (`hooks.prompt_context`); the others come when a message matches. Embedding similarity alone was measured and not
+  used for the card: different rules "never import module m1 / m2" 0.93, rewordings of one rule 0.73-0.88.
+  "same @M" for a line that gave two notes takes the closer one (it had linked a repeat to the line's other rule).
+  Sentences up to 200 words are judged (43 typed run-ons over 60 words in all history, ~5k tokens; they held rules).
+  Real replay (165 messages, 50+ sessions): the most repeated rule, 7 sayings in one family, said in 4+ sessions, one
+  card line; a rule with a new detail (who does it) stays apart from the rule it details; task junk on the card 0;
+  card 3 lines, ~270 chars. Left: Haiku linked one wrong detail under an unrelated rule, a wish about the reply said
+  in passing ("... and keep it brief") is mostly not kept, ~44k tokens for 165 messages (13 calls; most of it output
+  overhead).
 
 ## Long messages as groups (2026-11-27, plan: [long-text-groups](../plans/long-text-groups.md))
 

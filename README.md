@@ -43,9 +43,10 @@ tokens**, and Claude only reads the few notes that match your message — nothin
 | Where facts belong | No rule | You vs. project, kept apart |
 | Where it runs | Sometimes a cloud service | On your computer; notes stay local |
 
-Learning adds a few ms per message and costs 0 Claude tokens by default. Opt into Haiku and one small batch after
-each session sends what you typed (not code or Claude's replies) to Haiku — about 5-10k tokens a day, an estimate —
-to sort it into facts, rules and noise.
+Learning adds a few ms per message and costs 0 Claude tokens by default. Opt into Haiku and, when a session ends
+with enough waiting (about 30 sentences, or 3 hours after you said it), one batch sends what you typed and pasted (not Claude's
+replies) to Haiku to sort it into facts, rules, lists and noise — about 6k tokens a day on one real history (estimate), never
+while you work.
 
 ## See it work in Claude Code
 
@@ -137,31 +138,24 @@ It also works with opencode and other MCP agents.
 
 ## How it works
 
-1. **You type a message** in Claude Code. dore's hook reads it before Claude does.
-2. **If it tells a fact** ("our staging port is 8443"), dore saves it as a note on your machine.
-   Questions and requests are not saved.
-3. **If it asks about something dore knows**, the hook adds the matching notes (a few lines) to your
-   message, so Claude can answer. If nothing matches, nothing is added (0 tokens).
-4. **If a fact changes** ("the port is now 9443"), the newer note replaces the old one.
-5. **Rules you repeat** ("never use tabs", said in two sessions, in any words) or that Claude keeps following start
-   each new session, in a few lines at most; rules you stop repeating fade, like habits, and still come back when a
-   message matches them.
+![How dore works: learn, recall, update, rules like habits, Haiku review](docs/images/how-it-works.svg)
 
-With Haiku learning on, steps 2 and 4 still happen at once (so it works from your very first session), and Haiku
-reviews them afterwards: after each session dore's background helper sends what you typed (not code, logs, pastes or Claude's replies) to
-Haiku through your own `claude` command. Haiku says which are lasting facts or rules, which repeat or update an
-existing note, and which are noise; a quick note it doesn't agree with is archived. Nothing is deleted; an old note is hidden only when a second check agrees
-it is out of date. Offline or at your plan's limit, the sentences wait and are tried again later.
-
-Without Haiku, learning runs locally with small models: no Claude tokens, and your memory never leaves your machine.
+- **Learn:** dore reads each message before Claude does and keeps facts and rules. It skips questions and requests.
+- **Recall:** it adds only the notes that match your message. Nothing matches, nothing is added.
+- **Update:** a new value replaces the old one. The old note is hidden, never deleted.
+- **Rules like habits:** a rule you repeat or Claude follows gets stronger and starts each session; unused ones fade.
+- **Haiku review (optional):** at a session end, Haiku checks what you typed and pasted (not Claude's replies)
+  and keeps, merges or archives notes; a pasted list is kept whole, a log or error is dropped. Without it,
+  everything runs locally for 0 Claude tokens.
 
 ## Privacy
 
 - **Stays on your machine:** every note, everything you type, your projects and the search model's work.
   dore has no account, no server and no telemetry.
-- **With Haiku learning on** (you choose at install; change it in `~/.dore-memory/data/learner`): after each session,
-  the sentences you typed since the last time go to Claude Haiku through your own `claude` login, like any message
-  you send Claude. Your notes stay on your machine.
+- **With Haiku learning on** (you choose at install; change it in `~/.dore-memory/data/learner`): at a session end,
+  what you typed since the last batch, and the start and end of anything long you pasted (code and logs included),
+  go to Claude Haiku through your own `claude` login, like any message you send Claude. Your notes stay on your
+  machine.
 - **Otherwise the only thing dore sends:** once a day, one request for the public page
   `https://registry.npmjs.org/dore-memory/latest` to see the newest version number. It carries nothing about
   you or your memory; npm sees an ordinary request from your IP address. When there is a newer version, the

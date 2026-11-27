@@ -153,3 +153,15 @@ def test_being_found_by_a_search_is_not_being_used(tmp_path):
     assert i not in [m.id for m in rules_in_mind(s, "p", set())]
     s.search("never deploy on fridays", k=3, project="p")  # what dore's MCP tool does
     assert i not in [m.id for m in rules_in_mind(s, "p", set())]
+
+
+def test_a_rule_and_its_detailed_repeat_take_one_line_at_the_start(tmp_path):
+    s = make(tmp_path)
+    head = rule(s, "always write a failing test first", said=2)
+    detail = rule(s, "always write a failing test first for every bug fix", said=4)  # stronger, but the head stands for the family
+    other = rule(s, "never push straight to main", said=2)
+    s.link_rule(detail, head)
+    out = prompt_context(s, "rename a variable", "p", _State(tmp_path, "a"))
+    assert f"#{head}" in out and f"#{other}" in out and f"#{detail}" not in out
+    found = prompt_context(s, "always write a failing test first for every bug fix", "p", _State(tmp_path, "b"))
+    assert f"#{detail}" in found  # still found when a message matches

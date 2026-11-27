@@ -27,9 +27,12 @@ N update #id user|project: <note>   (note #id is now out of date)
 
 fact: lasts beyond this task: a name, tool, version, path, server, setting, decision or taste. A past action that \
 leaves a lasting state is a fact about that state ("I set X to Y": X is Y); a one-time event is skip.
-rule: an instruction for all future work ("always", "never", "from now on", "in this repo"), or a lasting wish \
-or dislike about how the assistant should work or answer. An instruction for the current task, or a feature to \
-build, is skip, even with "don't", "I want" or "please". A task may also state a lasting fact: keep that fact.
+rule: the sentence tells the assistant how to work or how to answer: an instruction, or a wish or dislike about \
+its work or its replies (their length, wording, format, who reads them), also when said inside a request for the \
+current task: whether it lasts is shown later, when the user says it again. What to build or change in the product \
+itself (a feature, a screen, a title, an image, a file) is not a rule: skip it. Write the instruction in the user's \
+own words, as an instruction to the assistant, at most 60 characters; never add advice the user did not give. A task \
+may also state a lasting fact: keep that fact.
 update: only when the sentence and note #id cannot both be true now: the same subject and the same property with \
 a new value. Another thing of the same kind (another item, person, service, job, place or time) is a new fact, \
 and note #id stays.
@@ -119,7 +122,9 @@ def parse(answer: str, items: list[Item]) -> dict[int, list[Verdict]]:
                 continue
             v.scope = s.group(2).lower()
             parts = [p.strip() for p in s.group(3).split("|")]
-            v.text = parts[0].strip(" .") + "."
+            v.text = parts[0].strip(" .<>") + "."
+            if len(v.text.split()) < 2:  # an empty slot or the form's placeholder ("<note>") echoed back
+                continue
             v.text = v.text[:1].upper() + v.text[1:]
             for p in parts[1:]:
                 key, _, words = p.partition(":")
@@ -167,6 +172,39 @@ def confirm_updates(verdicts: dict[int, list[Verdict]], items: list[Item], ask) 
         if said.get(k) != "no":
             v.action, v.ref = "fact", None
     return verdicts, usage
+
+
+REFINE = ("Each new line is an instruction a user gave a coding assistant. Saved instructions are listed as 'G<k>: "
+          "text'. For each new line, answer one line, nothing else:\n"
+          "<letter> G<k>   (it asks for what G<k> asks and nothing more: following G<k> already follows it)\n"
+          "<letter> G<k> adds: <what it asks that G<k> does not say>   (the same topic plus a new detail, condition, "
+          "person or exception)\n"
+          "<letter> same <letter>   (the same as an earlier new line, nothing more)\n"
+          "<letter> new   (none of these)\n"
+          "Before answering G<k>, check what the new line asks that G<k> does not say; if anything, answer adds.")
+_REFINE_LINE = re.compile(r"^\s*([a-z]{1,2})\s*[:.)-]?\s*(?:G(\d+)(?:\s+adds\s*:\s*(.*\S))?|same\s+([a-z]{1,2})|(new))"
+                          r"\s*\.?\s*$", re.I)
+
+
+def letter(k: int) -> str:
+    return chr(97 + k) if k < 26 else chr(97 + k // 26 - 1) + chr(97 + k % 26)
+
+
+def parse_refine(answer: str, n_new: int, n_saved: int) -> dict[str, tuple[str, object]]:
+    """Per new line's letter: ("saved", k) or ("adds", k) with k counted from 0, or ("same", letter) of an earlier
+    line. Only a line that is the answer alone counts, the last one per letter (Haiku sometimes reasons first)."""
+    letters = [letter(k) for k in range(n_new)]
+    out: dict[str, tuple[str, object]] = {}
+    for raw in answer.splitlines():
+        m = _REFINE_LINE.match(raw)
+        if not m or (a := m.group(1).lower()) not in letters:
+            continue
+        out.pop(a, None)
+        if m.group(2) and 1 <= int(m.group(2)) <= n_saved:
+            out[a] = ("adds" if m.group(3) else "saved", int(m.group(2)) - 1)
+        elif m.group(4) and m.group(4).lower() in letters[:letters.index(a)]:
+            out[a] = ("same", m.group(4).lower())
+    return out
 
 
 BLOCK_SYSTEM = """You decide what long messages a developer sent to a coding assistant should leave in long-term \
