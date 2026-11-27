@@ -29,11 +29,9 @@ Claude Code forgets everything between sessions, so you explain the same things 
 
 ## How is it different from other memory tools?
 
-Most memory tools ask the AI to keep the notebook: it decides what to save, then searches it or loads all of it
-into every message. You pay tokens for both, and the fact is lost when the model forgets to write it down.
-
-**dore keeps that work outside the model:** local rules in a hook decide what to save in ~13 ms for **0 Claude
-tokens**, and Claude only reads the few notes that match your message — nothing when nothing matches.
+Most memory tools let the AI decide what to save, then load it into every message: you pay tokens, and a fact is
+lost when the AI forgets to save it. **dore saves outside the model** (~13 ms, **0 Claude tokens**) and gives Claude
+only the notes that match your message.
 
 | | Usual memory tools | dore |
 |---|---|---|
@@ -43,37 +41,24 @@ tokens**, and Claude only reads the few notes that match your message — nothin
 | Where facts belong | No rule | You vs. project, kept apart |
 | Where it runs | Sometimes a cloud service | On your computer; notes stay local |
 
-Learning adds a few ms per message. When a session ends
-with enough waiting (about 30 sentences, or 3 hours after you said it), one batch sends what you typed and pasted (not Claude's
-replies) to Haiku to sort it into facts, rules, lists and noise — about 6k tokens a day on one real history (estimate), never
-while you work.
+At a session end, Haiku sorts what you typed (not Claude's replies) into facts, rules and noise, in one batch: about
+6k tokens a day (estimate), never while you work.
 
 ## See it work in Claude Code
 
-Left: **without** dore. Right: **with** dore.
+Left: **without** dore. Right: **with** dore. Real Claude Code sessions, recorded in a terminal.
 
-**Session 1:** tell Claude a fact.
+**Same project:** tell Claude a fact, close it, start a new session, and ask.
 
-![Session 1: both sides are told the staging port](docs/images/claude-code-1-tell.png)
-
-**Session 2:** close Claude, start a new session, and ask.
-
-![Session 2: without dore Claude can't find it; with dore it answers 8443](docs/images/claude-code-2-ask.png)
-
-Without dore, Claude can't find the port. With dore, it answers **8443** right away.
+![Same project: without dore Claude can't find the port; with dore it answers 8443](docs/images/claude-code-same-project.gif)
 
 ### Shared across projects
 
-Facts about you are shared by all your projects. Tell it in project **api**:
+Facts about you are shared by all your projects. Tell it in project **api**, then ask in project **shop**:
 
-![Project api: both sides are told "I write all my APIs in Go"](docs/images/claude-code-3-other-project-tell.png)
+![Different project: without dore Claude can't tell; with dore it answers Go](docs/images/claude-code-other-project.gif)
 
-Then ask in a different project, **shop**:
-
-![Project shop: without dore Claude can't tell; with dore it answers Go](docs/images/claude-code-4-other-project-ask.png)
-
-Without dore, Claude can't tell. With dore, it knows: **Go**. Facts about one project (like its port) stay in
-that project.
+Facts about one project (like its port) stay in that project.
 
 ## Test results
 
