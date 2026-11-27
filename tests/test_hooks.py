@@ -335,3 +335,12 @@ def test_this_projects_own_value_wins_whatever_was_said_first(tmp_path):
     out = prompt_context(s, "the staging port is", "shop", _State(tmp_path, "a"))
     assert "7000" in out and "9443" not in out
     assert "9443" in prompt_context(s, "the staging port is", "blog", _State(tmp_path, "b"))
+
+
+def test_haiku_learns_for_everyone_unless_a_check_turns_it_off(tmp_path, monkeypatch):
+    from dore.config import Config
+    monkeypatch.delenv("DORE_LEARN", raising=False)
+    (tmp_path / "learner").write_text("rules\n")  # an old install's answer no longer turns it off
+    assert Config(data_dir=tmp_path).learner == "haiku"
+    monkeypatch.setenv("DORE_LEARN", "rules")
+    assert Config(data_dir=tmp_path).learner == "rules"

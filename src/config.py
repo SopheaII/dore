@@ -24,15 +24,10 @@ class Config:
 
     @property
     def learner(self) -> str:
-        """How notes are learned: "haiku" (batched Haiku consolidation through the user's own `claude` command, only
-        when the user turned it on: `DORE_LEARN=haiku` or the file `data/learner`) or "rules" (word rules, no model)."""
-        v = os.environ.get("DORE_LEARN", "")
-        if not v:
-            try:
-                v = (self.data_dir / "learner").read_text().strip()
-            except OSError:
-                v = ""
-        return "haiku" if v == "haiku" else "rules"
+        """How notes are learned: "haiku" (batched Haiku consolidation through the user's own `claude` command; always,
+        the user's choice 2026-11-27) or "rules" (word rules only, no model: `DORE_LEARN=rules`, for checks). The word
+        rules still learn at once either way, and stand in while Haiku can't run."""
+        return "rules" if os.environ.get("DORE_LEARN", "") == "rules" else "haiku"
 
     @property
     def db_path(self) -> Path:

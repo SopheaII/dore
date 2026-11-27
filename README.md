@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Memory for Claude Code. Say it once, it remembers in every new session.</strong><br/>
-  Runs on your laptop · your notes never leave your machine · optional Haiku learning between sessions
+  Runs on your laptop · your notes never leave your machine · learns with Claude Haiku between sessions
 </p>
 
 <p align="center">
@@ -37,13 +37,13 @@ tokens**, and Claude only reads the few notes that match your message — nothin
 
 | | Usual memory tools | dore |
 |---|---|---|
-| Who decides what to save | The AI (costs tokens, can forget) | Local rules, free (or optional Haiku) |
+| Who decides what to save | The AI (costs tokens, can forget) | Local rules at once, Haiku between sessions |
 | What Claude receives | Everything, or what the AI searched | Only matching notes (plus rules once a session) |
 | Conflicting notes | Old and new may both stay | New beats old; you beat the AI |
 | Where facts belong | No rule | You vs. project, kept apart |
 | Where it runs | Sometimes a cloud service | On your computer; notes stay local |
 
-Learning adds a few ms per message and costs 0 Claude tokens by default. Opt into Haiku and, when a session ends
+Learning adds a few ms per message. When a session ends
 with enough waiting (about 30 sentences, or 3 hours after you said it), one batch sends what you typed and pasted (not Claude's
 replies) to Haiku to sort it into facts, rules, lists and noise — about 6k tokens a day on one real history (estimate), never
 while you work.
@@ -144,19 +144,19 @@ It also works with opencode and other MCP agents.
 - **Recall:** it adds only the notes that match your message. Nothing matches, nothing is added.
 - **Update:** a new value replaces the old one. The old note is hidden, never deleted.
 - **Rules like habits:** a rule you repeat or Claude follows gets stronger and starts each session; unused ones fade.
-- **Haiku review (optional):** at a session end, Haiku checks what you typed and pasted (not Claude's replies)
-  and keeps, merges or archives notes; a pasted list is kept whole, a log or error is dropped. Without it,
-  everything runs locally for 0 Claude tokens.
+- **Haiku review:** at a session end, Haiku checks what you typed and pasted (not Claude's replies)
+  and keeps, merges or archives notes; a pasted list is kept whole, a log or error is dropped. Until it runs (or
+  when `claude` can't be reached), local word rules keep what you say.
 
 ## Privacy
 
 - **Stays on your machine:** every note, everything you type, your projects and the search model's work.
   dore has no account, no server and no telemetry.
-- **With Haiku learning on** (you choose at install; change it in `~/.dore-memory/data/learner`): at a session end,
+- **Haiku learning:** at a session end,
   what you typed since the last batch, and the start and end of anything long you pasted (code and logs included),
   go to Claude Haiku through your own `claude` login, like any message you send Claude. Your notes stay on your
   machine.
-- **Otherwise the only thing dore sends:** once a day, one request for the public page
+- **Besides Haiku, the only thing dore sends:** once a day, one request for the public page
   `https://registry.npmjs.org/dore-memory/latest` to see the newest version number. It carries nothing about
   you or your memory; npm sees an ordinary request from your IP address. When there is a newer version, the
   update downloads it from npm and GitHub. Off with `DORE_NO_AUTO_UPDATE=1`.

@@ -1,6 +1,6 @@
 {
   "name": "dore-memory",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "Local long-term memory for Claude Code. Say it once, it remembers in every new session. Installs the dore Python package and its Claude Code plugin.",
   "keywords": [
     "claude-code",

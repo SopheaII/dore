@@ -216,9 +216,10 @@ Measured 2026-11-25 (`dore.eval.learning`, `dore.eval.stream seeds 5`):
 - Every add checks duplicates with a flat search (O(n)): fine for chat, slow for bulk loads of 100k (440 items/s).
 - Re-ask detection misses big rewordings ("What is my job?" / "What do I do for work?" 0.79).
 
-## Learning by Haiku consolidation (opt-in, 2026-11-26)
+## Learning by Haiku consolidation (2026-11-26; always on since 2026-11-27, the user's choice)
 
-- `data/learner` = `haiku` (asked at install, default no; `DORE_LEARN` overrides): the word rules still learn at once
+- Always on (`Config.learner`; no install question; `DORE_LEARN=rules` turns it off, for checks; a no `claude`
+  command or no login only delays batches, `integrations.learner` back-off): the word rules still learn at once
   (provisional notes, table `provisional`: the first session works before any batch), and the prompt hook also queues
   the message's sentences in raw memory (`hooks.queue_message`, shape filter `learn.consolidate.sentences`: 3-60 words,
   questions only with 12+ words, no code/logs, nothing from messages over 3,000 chars, at most 20 per message, not

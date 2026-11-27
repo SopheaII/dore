@@ -244,7 +244,7 @@
     <rect x="30" y="0" width="240" height="235" rx="14" fill="#fff" stroke="#111" stroke-width="3"/>
     <path d="M108 125 H192 A26 26 0 0 0 186 74 A36 36 0 0 0 118 78 A24 24 0 0 0 108 125 Z" fill="#cfe0ff" stroke="#111" stroke-width="3" stroke-linejoin="round"/>
     <use href="#spark" xlink:href="#spark" transform="translate(152,100) scale(1.3)" fill="#d97757" stroke="#111" stroke-width="1.5"/>
-    <text font-size="24" text-anchor="middle" fill="#111"><tspan x="150" y="180">Haiku Review</tspan><tspan x="150" y="206" font-size="16" fill="#666">(optional)</tspan></text>
+    <text font-size="24" text-anchor="middle" fill="#111"><tspan x="150" y="180">Haiku Review</tspan><tspan x="150" y="206" font-size="16" fill="#666">(session end)</tspan></text>
 
     <rect x="285" y="0" width="885" height="235" rx="14" fill="#fff" stroke="#111" stroke-width="3"/>
     <use href="#user" xlink:href="#user" x="300" y="65" width="80" height="80"/>
