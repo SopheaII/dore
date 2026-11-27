@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Memory for Claude Code. Say it once, it remembers in every new session.</strong><br/>
-  Runs on your laptop · your notes never leave your machine · learns with Claude Haiku between sessions
+  Runs on your laptop · notes stored only on your machine · learns with Claude Haiku after sessions
 </p>
 
 <p align="center">
@@ -10,7 +10,7 @@
   <a href="https://github.com/SopheaII/dore-memory/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/SopheaII/dore-memory/ci.yml?branch=master&style=flat-square&label=CI" alt="CI" /></a>
   <a href="https://www.npmjs.com/package/dore-memory"><img src="https://img.shields.io/npm/v/dore-memory?style=flat-square&logo=npm" alt="npm" /></a>
   <img src="https://img.shields.io/badge/python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+" />
-  <img src="https://img.shields.io/badge/memory-stays_local-2ea44f?style=flat-square" alt="Memory stays local" />
+  <img src="https://img.shields.io/badge/memory-stored_locally-2ea44f?style=flat-square" alt="Memory stored locally" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license" />
 </p>
 
@@ -30,7 +30,7 @@ Claude Code forgets everything between sessions, so you explain the same things 
 ## How is it different from other memory tools?
 
 Most memory tools let the AI decide what to save, then load it into every message: you pay tokens, and a fact is
-lost when the AI forgets to save it. **dore saves outside the model** (~13 ms, **0 Claude tokens**) and gives Claude
+lost when the AI forgets to save it. **dore saves outside the model** (~13 ms) and gives Claude
 only the notes that match your message.
 
 | | Usual memory tools | dore |
@@ -39,26 +39,25 @@ only the notes that match your message.
 | What Claude receives | Everything, or what the AI searched | Only matching notes (plus rules once a session) |
 | Conflicting notes | Old and new may both stay | New beats old; you beat the AI |
 | Where facts belong | No rule | You vs. project, kept apart |
-| Where it runs | Sometimes a cloud service | On your computer; notes stay local |
+| Where it runs | Sometimes a cloud service | On your computer; Haiku through your own `claude` login |
 
 At a session end, Haiku sorts what you typed (not Claude's replies) into facts, rules and noise, in one batch: about
 6k tokens a day (estimate), never while you work.
 
 ## See it work in Claude Code
 
-Left: **without** dore. Right: **with** dore. Real Claude Code sessions, recorded in a terminal.
+Two real Claude Code terminals, both with dore, recorded as they ran (Claude's thinking time plays faster).
 
-**Same project:** tell Claude a fact, close it, start a new session, and ask.
+**Same project:** what you tell one terminal, the other knows: the port (7311, then 7412) and a rule (pnpm).
 
-![Same project: without dore Claude can't find the port; with dore it answers 8443](https://raw.githubusercontent.com/SopheaII/dore-memory/master/docs/images/claude-code-same-project.gif)
+![Same project: terminal 2 knows the port and its update, and the pnpm rule, from terminal 1](https://raw.githubusercontent.com/SopheaII/dore-memory/master/docs/images/claude-code-same-project.gif)
 
-### Shared across projects
+### Different projects
 
-Facts about you are shared by all your projects. Tell it in project **api**, then ask in project **shop**:
+Terminal 2 moves to project **beta**. alpha's port and rule stay in alpha; your favourite fruit, and its update,
+reach both.
 
-![Different project: without dore Claude can't tell; with dore it answers Go](https://raw.githubusercontent.com/SopheaII/dore-memory/master/docs/images/claude-code-other-project.gif)
-
-Facts about one project (like its port) stay in that project.
+![Different projects: alpha's notes stay in alpha; the favourite fruit reaches both](https://raw.githubusercontent.com/SopheaII/dore-memory/master/docs/images/claude-code-other-project.gif)
 
 ## Test results
 
@@ -135,12 +134,12 @@ It also works with opencode and other MCP agents.
 
 ## Privacy
 
-- **Stays on your machine:** every note, everything you type, your projects and the search model's work.
-  dore has no account, no server and no telemetry.
-- **Haiku learning:** at a session end,
-  what you typed since the last batch, and the start and end of anything long you pasted (code and logs included),
-  go to Claude Haiku through your own `claude` login, like any message you send Claude. Your notes stay on your
-  machine.
+- **Stored only on your machine:** your notes, your projects and the search model's work. dore has no account,
+  no server and no telemetry.
+- **Sent to Claude Haiku** after a session, through your own `claude` login like any message you send Claude (it
+  counts toward your Claude usage): what you typed since the last batch (not Claude's replies), anything you pasted
+  (only its first 20 and last 5 lines when it is long; code and logs included), and a few saved notes and rules
+  close to it, so Haiku can tell a new fact from an update or a repeat.
 - **Besides Haiku, the only thing dore sends:** once a day, one request for the public page
   `https://registry.npmjs.org/dore-memory/latest` to see the newest version number. It carries nothing about
   you or your memory; npm sees an ordinary request from your IP address. When there is a newer version, the

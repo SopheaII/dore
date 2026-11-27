@@ -150,7 +150,7 @@ function install(upgrade) {
   console.log(`  memory:  ${DATA}`);
   console.log(`  plugin:  ${plugin ? PLUGIN + " installed" : "not installed (see above)"}`);
   console.log("  Start a new Claude Code session; dore learns from what you tell it.");
-  console.log("  Your memory stays on this computer. At a session end, what you typed goes to Claude Haiku through your");
+  console.log("  Your notes are stored on this computer. After a session, what you typed goes to Claude Haiku through your");
   console.log("  own `claude` login to sort it into facts and rules. Once a day dore asks npm for a newer version and updates");
   console.log("  itself in the background (nothing about you is sent); turn that off with DORE_NO_AUTO_UPDATE=1.");
 }

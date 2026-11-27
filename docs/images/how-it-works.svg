@@ -255,7 +255,7 @@
     <rect x="520" y="60" width="120" height="90" rx="8" fill="#fde0b8" stroke="#c0843a" stroke-width="2.5"/>
     <text x="580" y="82" font-size="13" text-anchor="middle" fill="#111">What you typed</text>
     <path d="M534 98 H626 M534 112 H626 M534 126 H600" stroke="#d9a35f" stroke-width="3.5" stroke-linecap="round"/>
-    <text x="580" y="170" font-size="12" text-anchor="middle" fill="#555" font-weight="600">not code or replies</text>
+    <text x="580" y="170" font-size="12" text-anchor="middle" fill="#555" font-weight="600">not Claude's replies</text>
 
     <line x1="640" y1="105" x2="690" y2="105" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
     <circle cx="665" cy="85" r="10" fill="#111"/><text x="665" y="90" font-size="13" fill="#fff" text-anchor="middle">2</text>

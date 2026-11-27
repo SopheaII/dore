@@ -1,7 +1,7 @@
 {
   "name": "dore-memory",
   "version": "0.6.1",
-  "description": "Local long-term memory shared by all Claude Code sessions and projects (dore): learns facts, standing rules (trusted once repeated in other words) and updates from plain chat at 0 Claude tokens, ~11 tokens per prompt on average. Runs on this machine; memory never leaves it (only a once-a-day version check to npm for auto-update, off with DORE_NO_AUTO_UPDATE=1).",
+  "description": "Local long-term memory shared by all Claude Code sessions and projects (dore): learns facts, standing rules (trusted once repeated in other words) and updates from plain chat, checked by a small Claude Haiku batch at session ends; ~11 tokens per prompt on average. Notes are stored only on this machine. After a session, what you typed (with a few close notes) goes to Claude Haiku through your own claude login; once a day a version check to npm (off with DORE_NO_AUTO_UPDATE=1).",
   "author": { "name": "dore" },
   "license": "MIT"
 }
