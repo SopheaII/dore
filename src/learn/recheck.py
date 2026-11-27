@@ -4,7 +4,7 @@
     python -m dore.learn.recheck --apply    # archive them (kept in SQLite, `MemoryStore.restore` brings one back)
 
 Only the user's own statements are re-judged (`source="user"`, `kind="statement"`), never protected
-notes, documents, lessons or Claude's notes. Nothing is deleted. A note passes when today's rules
+notes, list items (`MemoryStore.add_group`), documents, lessons or Claude's notes. Nothing is deleted. A note passes when today's rules
 still learn its words from it (`message_facts`), so rule improvements also clean what older rules
 stored ("Now turn it on and show on status line too", pasted UI lines).
 """
@@ -32,7 +32,7 @@ def recheck(store: MemoryStore, apply: bool = False) -> list[tuple[int, str]]:
     """Notes today's rules would not learn; archived when `apply`. Returns (id, content)."""
     rows = store.db.execute(
         f"SELECT id, content FROM memories WHERE {SEARCHABLE_SQL} AND source='user' AND kind='statement' "
-        "AND protected=0 AND replaced_by IS NULL ORDER BY id").fetchall()
+        "AND protected=0 AND replaced_by IS NULL AND group_id IS NULL ORDER BY id").fetchall()
     # A standing "don't / never / no need" instruction may be a lasting rule even when today's rules
     # read it as a request ("Don't run the slow e2e suite, just use the unit tests"): never archived here.
     out = [(i, c) for i, c in rows if not _kept(c) and not STANDING_NO.match(c)]

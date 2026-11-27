@@ -78,7 +78,7 @@ class MemoryStore:
         for col, typ in (("last_seen", "REAL"), ("replaced_by", "INTEGER"), ("valid_to", "REAL"),
                          ("key_vector", "BLOB"), ("tries", "INTEGER NOT NULL DEFAULT 0"),
                          ("uses", "INTEGER NOT NULL DEFAULT 0"), ("said_in", "TEXT"),
-                         ("rule", "INTEGER NOT NULL DEFAULT 0")):
+                         ("rule", "INTEGER NOT NULL DEFAULT 0"), ("group_id", "INTEGER")):
             if col not in cols:
                 self.db.execute(f"ALTER TABLE memories ADD COLUMN {col} {typ}")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_mem_rule ON memories(project) WHERE rule=1")
@@ -87,6 +87,7 @@ class MemoryStore:
         self.db.execute("CREATE TABLE IF NOT EXISTS shadows (note_id INTEGER NOT NULL, project TEXT NOT NULL, "
                         "by_id INTEGER NOT NULL, PRIMARY KEY (note_id, project))")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_mem_project ON memories(project)")
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_mem_group ON memories(group_id) WHERE group_id IS NOT NULL")
         if "words_key" not in cols:  # same words in the same order (`rules._dup_key`), for exact repeats
             self.db.execute("ALTER TABLE memories ADD COLUMN words_key TEXT")
             for col in ("rule_when", "rule_not"):  # a rule's situation and forbidden words (`learn.judge`)
@@ -280,7 +281,7 @@ class MemoryStore:
     def add_many(self, contents: list[str], kind: str = "fact", source: str = "user",
                  trust: str = "unverified", protected: bool = False, project: str = "",
                  supersede: bool = False, keys: list[str | None] | None = None,
-                 created: float | None = None) -> list[int]:
+                 created: float | None = None, group: int | None = None) -> list[int]:
         """Store several memories with the same metadata in one batch.
 
         A near-duplicate of a searchable item (in the store or earlier in this batch)
@@ -292,6 +293,7 @@ class MemoryStore:
         vector; search scores a note by the closer of its two vectors. Used only for search.
         created: when it was said, for a note learned later from raw memory (`memory.episodes`); default now.
         An older date never replaces a newer note, and a newer note it would have updated replaces it.
+        group: the group note these are items of (`add_group`); items of one group never replace each other.
         """
         if trust not in TRUST_LEVELS:
             raise ValueError(f"trust must be one of {TRUST_LEVELS}")
@@ -309,7 +311,7 @@ class MemoryStore:
             first_new = (self.db.execute("SELECT MAX(id) FROM memories").fetchone()[0] or 0) + 1
             for start in range(0, len(texts), EMBED_BATCH):
                 out += self._add_batch(texts[start:start + EMBED_BATCH], kind, source, trust, protected,
-                                       project, keys[start:start + EMBED_BATCH], given, created)
+                                       project, keys[start:start + EMBED_BATCH], given, created, group)
                 # Commit per batch: the next batch's embedding (slow) must not run while this
                 # process holds SQLite's write lock, or other sessions' writes time out.
                 self.db.commit()
@@ -350,6 +352,7 @@ class MemoryStore:
             # saved as general and its project-scoped update never replaced it (long-conversation
             # test 2026-11-25). A general note never replaces another project's own note.
             if (m is None or m.project not in (new.project, "")
+                    or (new.group_id is not None and m.group_id == new.group_id)
                     or m.protected or m.created > new.created
                     or (m.created == new.created and m.id > new.id)
                     or m.kind not in ("fact", "statement", "correction")
@@ -372,7 +375,7 @@ class MemoryStore:
         return done
 
     def _add_batch(self, texts, kind, source, trust, protected, project, keys, keys_given=False,
-                   created: float | None = None) -> list[int]:
+                   created: float | None = None, group: int | None = None) -> list[int]:
         vecs = self.embedder.embed([embed_text(t) for t in texts]).astype(np.float32)
         kpos = [i for i, k in enumerate(keys) if k]
         kvecs = dict(zip(kpos, self.embedder.embed([embed_text(keys[i]) for i in kpos]).astype(np.float32))) if kpos else {}
@@ -406,9 +409,9 @@ class MemoryStore:
                 continue
             cur = self.db.execute(
                 "INSERT INTO memories (content, kind, source, trust, protected, created, vector, project, key_vector, "
-                "rule, words_key) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "rule, words_key, group_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (text, kind, source, trust, int(protected), now, vec.tobytes(), project,
-                 kvecs[i].tobytes() if i in kvecs else (b"" if keys_given else None), 0, sigs[i]),
+                 kvecs[i].tobytes() if i in kvecs else (b"" if keys_given else None), 0, sigs[i], group),
             )
             ids.append(cur.lastrowid)
             if indexed:
@@ -416,6 +419,47 @@ class MemoryStore:
                 new_ids.append(cur.lastrowid)
         self._index_add(vecs[new_rows], new_ids)
         return ids
+
+    def add_group(self, title: str, items: list[str], trust: str = "verified", project: str = "",
+                  created: float | None = None, session: str = "") -> list[int]:
+        """A list as one group: a group note (the title, searchable) and one note per item, word for word, each
+        searched with the title beside it ("Sokha: nurse" is found by "where does my friend Sokha live"). A title or
+        item already stored counts as said again (once per session) and joins this group; each new item replaces
+        older notes it updates. Returns [group id, *item ids]."""
+        now = created or time.time()
+        head = self.same_words(title, project)
+        if head is None:
+            head = self.add(title, kind="group", source="user", trust=trust, project=project, created=created)
+        else:
+            self.said_again(head, now, session)
+        old = {t: self.same_words(t, project) for t in dict.fromkeys(items)}
+        for i in old.values():
+            if i is not None:
+                self.said_again(i, now, session)
+        new = [t for t, i in old.items() if i is None]
+        made = dict(zip(new, self.add_many(new, kind="statement", source="user", trust=trust, project=project,
+                                           supersede=True, keys=[f"{title}: {t}" for t in new], created=created,
+                                           group=head))) if new else {}
+        ids = [old[t] if old[t] is not None else made[t] for t in old]
+        for i in made.values():
+            self.said_again(i, now, session, first=True)
+        with self._lock:
+            self.db.execute(f"UPDATE memories SET group_id=? WHERE id IN ({','.join('?' * len(ids))}) AND id != ?",
+                            (head, *ids, head))
+            self.db.commit()
+        return [head, *ids]
+
+    def group_items(self, head: int, limit: int | None = None) -> list[Memory]:
+        """The searchable items of a group, oldest first."""
+        with self._lock:
+            rows = self.db.execute(f"SELECT {_COLS} FROM memories WHERE group_id=? AND {SEARCHABLE_SQL} ORDER BY id"
+                                   + (f" LIMIT {int(limit)}" if limit else ""), (head,)).fetchall()
+        return [_row(r) for r in rows]
+
+    def group_size(self, head: int) -> int:
+        with self._lock:
+            return self.db.execute(f"SELECT count(*) FROM memories WHERE group_id=? AND {SEARCHABLE_SQL}",
+                                   (head,)).fetchone()[0]
 
     def _tried_out(self, sig: str, project: str) -> int | None:
         """A note with the same words that a trial archived (`mark_tried`), in this project."""

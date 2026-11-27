@@ -1,5 +1,6 @@
-"""When to run Haiku consolidation (`learn.consolidate`): rarely, in the background, never twice at once, backing
-off after a failure and stopping at a daily token cap. The queue is raw memory not yet judged (`memory.episodes`)."""
+"""When to run Haiku consolidation (`learn.consolidate`): only when a session ends, and only when enough is waiting;
+never twice at once, backing off after a failure and stopping at a daily token cap. The queue is raw memory not yet
+judged (`memory.episodes`); until it is judged the word rules' notes stand in (`hooks.mark_provisional`)."""
 
 from __future__ import annotations
 
@@ -11,8 +12,9 @@ from dore.learn.consolidate import BATCH, Said, consolidate
 from dore.learn.judge import ClaudeCLI, JudgeError
 
 JUDGED = "haiku-1"        # an episode judged by Haiku (`episodes.judged`)
-DUE_SENTENCES = BATCH     # a batch is due when full (real replay: batches of ~8 cost 2x the calls) ...
-DUE_AGE = 86400.0         # ... or when the oldest has waited a day
+DUE_SENTENCES = BATCH     # at a session end, a batch is due when full (real replay: one call per session, 134 calls) ...
+DUE_AGE = 3 * 3600.0      # ... or when the oldest has waited 3 hours (real history: 46 calls, 90% judged within 22 h)
+END_BATCHES = 3           # batches run at one session end (~9 s each; SessionEnd allows 60 s)
 DAILY_TOKENS = 50_000     # cap on Haiku tokens a day (a normal day uses ~5k)
 FIRST_WAIT, MAX_WAIT = 1800.0, 86400.0  # back-off after a failed call: 30 min, doubling, at most a day
 _RUNNING = threading.Lock()
@@ -33,19 +35,18 @@ def _state(store) -> dict:
 
 
 def due(store, now: float | None = None, ended: bool = False) -> bool:
-    """A batch is due when full, when its oldest sentence has waited a day, or when a session the sentences come from
-    is over (`ended`: SessionEnd; or a newer session has started), so what was said is known by the next session."""
+    """At a session end (`ended`) only, never while the user works: when a batch is full or its oldest sentence has
+    waited `DUE_AGE`."""
     now = now or time.time()
+    if not ended:
+        return False
     st = _state(store)
     if now < st.get("next_try", 0) or (st.get("day") == time.strftime("%Y-%m-%d")
                                        and st.get("tokens", 0) >= DAILY_TOKENS):
         return False
     with store._lock:
         n, oldest = store.db.execute("SELECT count(*), min(created) FROM episodes WHERE judged=''").fetchone()
-        over = n > 0 and store.db.execute(
-            "SELECT 1 FROM episodes WHERE judged='' AND session != (SELECT session FROM episodes ORDER BY id DESC "
-            "LIMIT 1) LIMIT 1").fetchone() is not None
-    return n >= DUE_SENTENCES or (n > 0 and (ended or over or now - (oldest or now) >= DUE_AGE))
+    return n >= DUE_SENTENCES or (n > 0 and now - (oldest or now) >= DUE_AGE)
 
 
 def run_once(store, ask=None, ended: bool = False) -> dict | None:
@@ -67,13 +68,13 @@ def run_once(store, ask=None, ended: bool = False) -> dict | None:
             st.update(fails=fails, next_try=max(time.time() + wait, e.retry_at or 0), last_error=e.kind)
             store.meta("learner", json.dumps(st))
             return None
-        made = stats["lines"]
+        made, left = stats["lines"], set(stats.get("unanswered", ()))  # unanswered lines wait for the next batch
         with store._lock:
             store.db.executemany("UPDATE episodes SET judged=?, told=?, note_id=? WHERE id=?",
                                  [(JUDGED, int(n in made), (made.get(n) or [None])[0], s.id)
-                                  for n, s in enumerate(batch, 1)])
+                                  for n, s in enumerate(batch, 1) if n not in left])
             store.db.commit()
-        stats["archived"] = settle(store, {s.id: made.get(n, []) for n, s in enumerate(batch, 1)})
+        stats["archived"] = settle(store, {s.id: made.get(n, []) for n, s in enumerate(batch, 1) if n not in left})
         u = stats.get("usage") or {}
         day = time.strftime("%Y-%m-%d")
         tokens = (st.get("tokens", 0) if st.get("day") == day else 0) + u.get("input", 0) + u.get("output", 0)
@@ -103,15 +104,6 @@ def settle(store, judged: dict[int, list[int]]) -> int:
         store.db.execute("DELETE FROM provisional WHERE note_id=?", (note_id,))
     store.db.commit()
     return gone
-
-
-def run_in_background(store, ask=None) -> threading.Thread | None:
-    """Start `run_once` in a thread when a batch is due (the helper keeps answering prompts meanwhile)."""
-    if not due(store) or _RUNNING.locked():
-        return None
-    t = threading.Thread(target=run_once, args=(store, ask), daemon=True)
-    t.start()
-    return t
 
 
 def wait(timeout: float = 240.0) -> bool:

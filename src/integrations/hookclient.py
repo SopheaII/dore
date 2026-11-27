@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None):
     argv = sys.argv[1:] if argv is None else argv
     event = argv[0] if argv else ""
     try:
-        data = json.loads(sys.stdin.read() or "{}")
+        data = {"ids": argv[1:]} if event == "recall" else json.loads(sys.stdin.read() or "{}")
     except ValueError:
         data = {}
     if os.environ.get("CLAUDE_PROJECT_DIR"):  # the folder the session started in (Claude Code sets it for hooks)

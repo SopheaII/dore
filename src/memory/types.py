@@ -41,6 +41,7 @@ class Memory:
     uses: int = 0   # times Claude's reply clearly used it (`hooks.use_check`)
     rule_when: str | None = None  # a rule's situation and forbidden words, JSON lists (`learn.judge`)
     rule_not: str | None = None
+    group_id: int | None = None  # the group note (a list's title) this note is an item of (`MemoryStore.add_group`)
     similarity: float = 0.0
     keyword: float = 0.0  # share of the query's keywords found in this memory
     rank: float = 0.0
@@ -48,7 +49,7 @@ class Memory:
 
 
 _COLS = ("id, content, kind, source, trust, protected, archived, created, last_used, times_used, times_seen, "
-         "feedback, project, last_seen, replaced_by, valid_to, tries, uses, rule_when, rule_not")
+         "feedback, project, last_seen, replaced_by, valid_to, tries, uses, rule_when, rule_not, group_id")
 
 
 def _row(r) -> Memory:
@@ -56,6 +57,7 @@ def _row(r) -> Memory:
         id=r[0], content=r[1], kind=r[2], source=r[3], trust=r[4], protected=bool(r[5]),
         archived=bool(r[6]), created=r[7], last_used=r[8], times_used=r[9], times_seen=r[10], feedback=r[11],
         project=r[12], last_seen=r[13], replaced_by=r[14], valid_to=r[15], tries=r[16], uses=r[17], rule_when=r[18], rule_not=r[19],
+        group_id=r[20],
     )
 
 

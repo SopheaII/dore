@@ -66,5 +66,11 @@ Success = `bench stream`: correct up, stale/leak/junk/repeat mistakes down, toke
    (same value in 2+ repos; project copies kept, linked; one repo's names/paths/IDs never go general); no
    cross-project fallback; the user can move a note's scope. Steps S1–S5 in the plan, one at a time; S1 (project = git repo, start folder without git), S2 (updates keep their scope, no cross-project notes), S3 safe part (where a fact was said decides who its change reaches) done 2026-11-26.
 5. Retrieval: topic keys done (2026-11-26, retrieval 5/8 -> 7/8; `bge-base-en-v1.5` measured: +1 to +3 points for 2x hook time, not adopted). Left: synonym questions ("What is my job?" vs "I work as a nurse"), profile card (once per session), small reranker.
+5b. Long messages as groups (plan: [long-text-groups](.agents/plans/long-text-groups.md), 2026-11-27): a list is a
+   title + entries word for word; Haiku judges every paste and long message whole; a question gets the matching entry +
+   `dore-hook recall <id>`. Lists check: entries found later 6/16 -> 15/16 with Haiku, noise 0/8, secrets 0, similar-word
+   work prompts given list text 3/72 (titles only on questions); old checks unchanged; hook ms unchanged. Haiku runs
+   only at a session end with 30 items or a 3-hour wait, one call for sentences and blocks (real history: 118 -> 46
+   calls, ~238k -> ~166k tokens, estimate). Left: an updated list replacing the old one as a whole, secret scrubbing without Haiku.
 6. Other languages: multilingual parser + embedder (Khmer is neither learned nor found today).
 

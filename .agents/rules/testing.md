@@ -9,6 +9,7 @@ Checks from cheapest to dearest, baselines, conventions.
 | Unit tests | `.venv/bin/pytest -q` | ~6 s, no model | every change (all pass on macOS and Linux) |
 | Conversation check | `.venv/bin/python -m dore.eval.conversation` | ~10 s, embedder only | any memory, learning or hook change |
 | Learning check | `.venv/bin/python -m dore.eval.learning [--real] [--styles]` | ~10 s, embedder + parser | any change to what is learned, replaced or retrieved |
+| Lists check | `.venv/bin/python -m dore.eval.lists` (recorded Haiku answers, 0 tokens; `--live` asks for new ones) | ~5 s | long messages, groups, pastes, `BLOCK_SYSTEM` |
 | Rules check | `.venv/bin/python -m dore.eval.rules` | ~5 s, embedder only | any change to standing rules, session start, trial |
 | Stream check | `.venv/bin/python -m dore.eval.stream` (= `bench stream`); `… stream seeds 5` for varied wording | ~7 s per seed | any learning, scope or hook change |
 | Install smoke test | `sh tests/smoke/smoke.sh` (Windows: `tests\smoke\smoke.ps1`): installs from this checkout into a temp folder, saves and recalls a fact through the real hook command, uninstalls | ~40 s, downloads packages | any change to `npm/`, `plugin/hooks/` or the helper |
@@ -30,6 +31,7 @@ Baselines (2026-11-25, after the grammar gate). A change must not lower "correct
 | Stream, seeds 1–5 mean (2026-11-26, notes on trial + scope S2) | correct per week 28.6, 28.4, 27.6, 27.6 /30; stale 0, 0.4, 2.0, 2.4; leaks 0; repeat mistakes 5.0; junk 10.8 of ~467; missed 0 of 29; 2.0 notes in the 220-prompt session; 0.8 tokens per work prompt (0.3 before same words counted as the same note whatever the punctuation, `store.same_words`: true repeats now prove a fact, which is then shown on strongly matching work prompts; correct/stale/leak unchanged) |
 | Scale, 12 projects × 24 weeks (2026-11-26, notes on trial + scope S2) | correct 86, 81, 80, 80, 80, 81 % at weeks 4–24; stale 2/12 at week 24; leak ≤1; junk 195 of ~8,500 noise; missed 3 of 112; 29 tokens per question, 0.4 per work prompt (rules on trial); hook 6–7 ms median, 13–17 ms p95 (parse cache) |
 | Real replay (1,036 prompts, 2026-11-26, raw memory on, consolidating between sessions) | 191 rows (notes + hidden requirements), 314 episodes, 7.3 tokens added per prompt, hook 24 ms median, 250 ms p95 |
+| Lists (2026-11-27) | entries found later: word rules 6/16, Haiku 15/16; ~66 tokens per answer; recall 50/50; noise notes 0 of 8 messages; secrets 0; similar-word work prompts given list text: word rules 1/72, Haiku 3/72; Haiku ~1,550 tokens per call |
 | Stream, seed 7 | 24, 24, 23, 22 /30; stale 0, 1/2, 3/10, 4/11; junk 14 (8 notes); hook 9 ms median |
 
 ## Conventions

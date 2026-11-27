@@ -114,19 +114,21 @@ def test_a_batch_runs_only_when_due_and_marks_what_was_judged(tmp_path):
     from dore.integrations import learner
     s = store(tmp_path)
     queue(s, ["the api runs on port 8080"])
-    assert not learner.due(s)  # one fresh sentence: wait for more
+    assert not learner.due(s, ended=True)  # one fresh sentence at a session end: wait for more
     queue(s, [f"we keep config number {k} in vault" for k in range(29)])
-    assert learner.due(s)
-    st = learner.run_once(s, Fake("1 fact project: The API runs on port 8080."))
+    assert not learner.due(s)  # a full batch while the user works: never mid-session
+    assert learner.due(s, ended=True)
+    skips = "".join(f"\n{k} skip" for k in range(2, 31))
+    st = learner.run_once(s, Fake("1 fact project: The API runs on port 8080." + skips), ended=True)
     assert st["notes"] == 1 and learner.queued(s) == []
-    assert not learner.due(s)
+    assert not learner.due(s, ended=True)
 
 
 def test_an_old_sentence_is_due_alone(tmp_path):
     from dore.integrations import learner
     s = store(tmp_path)
     queue(s, ["the api runs on port 8080"], created=1.0)
-    assert learner.due(s)
+    assert not learner.due(s) and learner.due(s, ended=True)
 
 
 def test_a_failed_call_keeps_the_queue_and_backs_off(tmp_path):
@@ -137,8 +139,8 @@ def test_a_failed_call_keeps_the_queue_and_backs_off(tmp_path):
 
     def limit(prompt, system=SYSTEM):
         raise JudgeError("limit", "usage limit reached", retry_at=4102444800.0)
-    assert learner.run_once(s, limit) is None
-    assert len(learner.queued(s)) == 1 and not learner.due(s)  # waits until the limit resets
+    assert learner.run_once(s, limit, ended=True) is None
+    assert len(learner.queued(s)) == 1 and not learner.due(s, ended=True)  # waits until the limit resets
     import json
     assert json.loads(s.meta("learner"))["next_try"] >= 4102444800
 
@@ -150,7 +152,7 @@ def test_the_daily_token_cap_stops_more_calls(tmp_path):
     s = store(tmp_path)
     queue(s, ["the api runs on port 8080"], created=1.0)
     s.meta("learner", json.dumps({"day": time.strftime("%Y-%m-%d"), "tokens": learner.DAILY_TOKENS}))
-    assert not learner.due(s)
+    assert not learner.due(s, ended=True)
 
 
 def test_haiku_learner_end_to_end_queue_batch_then_recall(tmp_path, monkeypatch):
@@ -162,7 +164,8 @@ def test_haiku_learner_end_to_end_queue_batch_then_recall(tmp_path, monkeypatch)
     assert len(first) == 1  # known at once by the word rules, provisional until Haiku judges it
     for k in range(29):
         hooks.on_prompt(s, f"please rename variable number {k} in cart", "shop", st, learn="haiku")
-    monkeypatch.setattr(learner, "ClaudeCLI", lambda: Fake("1 fact project: The staging API runs on port 8443."))
+    skips = "".join(f"\n{k} skip" for k in range(2, 31))
+    monkeypatch.setattr(learner, "ClaudeCLI", lambda: Fake("1 fact project: The staging API runs on port 8443." + skips))
     hooks.consolidate(s, learn="haiku", wait=True)
     assert learner.queued(s) == []
     shown = hooks.prompt_context(s, "what port does the staging api run on?", "shop", hooks._State(tmp_path, "two"))
@@ -190,14 +193,16 @@ def test_haiku_runs_with_every_hook_off_and_no_tools():
     assert CLI_FLAGS[CLI_FLAGS.index("--tools") + 1] == "" and "--strict-mcp-config" in CLI_FLAGS
 
 
-def test_what_was_said_in_one_session_is_learned_before_the_next(tmp_path, monkeypatch):
+def test_haiku_waits_for_a_session_end_with_enough_to_judge_and_the_word_rules_stand_in(tmp_path, monkeypatch):
     from dore.integrations import hooks, learner
     s = store(tmp_path)
     hooks.on_prompt(s, "the staging api runs on port 8443", "shop", hooks._State(tmp_path, "one"), learn="haiku")
-    assert not learner.due(s)  # the session is still going
-    assert learner.due(s, ended=True)  # SessionEnd
+    assert "8443" in hooks.prompt_context(s, "what port is staging on?", "shop", hooks._State(tmp_path, "x"))
     hooks.on_prompt(s, "hello again friend", "shop", hooks._State(tmp_path, "two"), learn="haiku")
-    assert learner.due(s)  # a newer session started: the first one is over (the terminal may have been closed)
+    assert not learner.due(s)  # a newer session started: still not while the user works
+    assert not learner.due(s, ended=True)  # a session end with little waiting: not worth a call
+    s.db.execute("UPDATE episodes SET created=1.0")  # a day later
+    assert learner.due(s, ended=True)
     monkeypatch.setattr(learner, "ClaudeCLI", lambda: Fake("1 fact project: The staging API runs on port 8443."))
     hooks.consolidate(s, learn="haiku", wait=True)
     assert "8443" in hooks.prompt_context(s, "what port is staging on?", "shop", hooks._State(tmp_path, "three"))
@@ -211,9 +216,34 @@ def test_haiku_settles_provisional_notes_keeps_what_it_agrees_with_archives_junk
     hooks.on_prompt(s, "thsi are too many button and some are not need", "shop", hooks._State(tmp_path, "one"),
                     learn="haiku")
     made = [r[0] for r in s.db.execute("SELECT id FROM memories WHERE archived=0")]
+    s.db.execute("UPDATE episodes SET created=1.0")
     monkeypatch.setattr(learner, "ClaudeCLI", lambda: Fake("1 fact project: The staging api runs on port 8443.\n2 skip"))
     hooks.consolidate(s, learn="haiku", wait=True)
     left = {m.content: m for m in s.get_many(made).values()}
     kept = [c for c, m in left.items() if not m.archived]
     assert any("8443" in c for c in kept) and not any("button" in c for c in kept)
     assert all(m.times_seen == 1 for m in left.values())  # Haiku agreeing is not the user saying it again
+
+
+def test_a_reply_that_is_not_an_answer_keeps_everything_queued(tmp_path):
+    from dore.integrations import hooks, learner
+    s = store(tmp_path)
+    hooks.on_prompt(s, "the staging api runs on port 8443", "shop", hooks._State(tmp_path, "one"), learn="haiku")
+    s.db.execute("UPDATE episodes SET created=1.0")
+    notes = s.db.execute("SELECT count(*) FROM memories WHERE archived=0").fetchone()[0]
+    assert learner.run_once(s, Fake("Sorry, I can't help with that."), ended=True) is None
+    assert len(learner.queued(s)) == 1
+    assert s.db.execute("SELECT count(*) FROM memories WHERE archived=0").fetchone()[0] == notes
+
+
+def test_a_line_haiku_did_not_answer_waits_for_the_next_batch(tmp_path):
+    from dore.integrations import hooks, learner
+    s = store(tmp_path)
+    st = hooks._State(tmp_path, "one")
+    for m in ("the staging api runs on port 8443", "thsi are too many button and some are not need"):
+        hooks.on_prompt(s, m, "shop", st, learn="haiku")
+    s.db.execute("UPDATE episodes SET created=1.0")
+    made = [r[0] for r in s.db.execute("SELECT id FROM memories WHERE archived=0")]
+    learner.run_once(s, Fake("1 fact project: The staging api runs on port 8443."), ended=True)
+    assert [c for _, c, *_ in learner.queued(s)] == ["thsi are too many button and some are not need"]
+    assert all(not m.archived for m in s.get_many(made).values())  # not judged yet: its note stays

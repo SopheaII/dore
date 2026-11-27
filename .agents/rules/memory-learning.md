@@ -213,7 +213,12 @@ Measured 2026-11-25 (`dore.eval.learning`, `dore.eval.stream seeds 5`):
   questions only with 12+ words, no code/logs, nothing from messages over 3,000 chars, at most 20 per message, not
   Claude's text pasted back). An exact repeat of a sentence that became a note counts at once (`said_again`, once per
   session, `note_sessions`).
-- A batch (30 sentences, the oldest a day old, or a session over) goes to Haiku in one call (`learn.judge`), each with up to 3 notes
+- Only at a session end (SessionEnd), never while the user works, and only when 30 items wait or the oldest has
+  waited 3 hours (2026-11-27, the user's choice). Real history (26 days, ~30 items a day): every session end 118 calls,
+  ~238k tokens; 30 or 1 day 32 calls (measured ~150k); 30 or 3 h 46 calls, ~166k (estimate: ~1k fixed per call +
+  ~120k content), 90% judged within 22 h. Past ~20 items the batch size barely matters; the floor is the content
+  (each sentence with up to 3 nearby notes). Up to 3 batches per session end. Sentences and long blocks share one call
+  (`judge.judge_all`). A batch goes to Haiku in one call (`learn.judge`), each with up to 3 notes
   >= 0.6 similar. Verdicts: skip / fact / rule (with situation and forbidden words for practice) / same #id or @line /
   update #id. Checks: ids only from that line's shortlist; every name and number in a note must be in the sentence
   (`grounded`); an update hides the old note only when a second focused question ("can both be true?") says no
@@ -223,5 +228,35 @@ Measured 2026-11-25 (`dore.eval.learning`, `dore.eval.stream seeds 5`):
   mostly real rules stated inside requests. Real replay (810 messages): 71 notes, 18 rules, 3 proven, 13 rewordings
   merged (word rules: 216 notes, 45 rules, 0 proven). Low effort + thinking off: same answers, ~8x fewer output
   tokens; run outside any project folder (inside one Claude Code loads its CLAUDE.md: ~4.7k tokens a call).
+- Failures (checked 2026-11-27 with a fake `claude`): usage limit -> nothing applied, retried after the reset time
+  the message gives; not logged in, no internet, a hung call (180 s), no `claude` command -> retried in 30 min,
+  doubling to a day; a reply with no verdict line (an apology, an error worded as text) counts as a failed call (it
+  had emptied the queue and archived every provisional note); a line Haiku left unanswered stays queued with its
+  note (it had counted as skip). Nothing is applied until every call of a batch has answered.
 - Haiku answers vary run to run (updates 29-35/35 across prompt versions): judge a prompt change on HELDOUT, more
   than one run when the difference is small.
+
+## Long messages as groups (2026-11-27, plan: [long-text-groups](../plans/long-text-groups.md))
+
+- A list is one **group**: a group note (its title, `kind="group"`) and one note per entry, word for word, linked by
+  `group_id`; an entry is searched with the title beside it (key vector). Entries of one group never replace each
+  other; an entry said before joins the group (`said_again`, once per session); recheck never re-judges entries.
+- Word rules (Haiku off): only a list the user typed under their own lead line ending in ":" that tells or names
+  something (`statements.list_group`); no entry may be a request, a question, code or indented. Lists without a lead
+  line and every paste wait for Haiku. Real history (892 typed messages): 0 lists made (1, a pasted compose file,
+  before the indent check).
+- Haiku: a message with a paste, 3+ lines, over 3,000 chars or over 20 sentences is queued whole (raw memory, up to
+  200k chars) and judged as one block (`judge.BLOCK_SYSTEM`; a long block by its first 40 and last 10 lines, each line
+  once): skip, group (title, fields, entry lines), fact or rule. Pasted text: a fact or rule taken out of it is
+  `unverified`; a pasted list is `verified` only when the user's words beside it tell something.
+- Measured (`python -m dore.eval.lists`, recorded answers): entries found by a later question, word rules 6/16, Haiku
+  15/16 (miss: "comes from" vs "live", 0.62 < 0.65); 50-entry list via recall 50/50; noise 0 of 8 messages (traceback,
+  npm log, code, task list, bug list, article, pasted summary, build story); secrets stored 0. Real long messages (18):
+  3 Haiku calls, ~13k tokens, 15 skipped. One prompt line ("bugs to fix are not a group") moved the bug list from kept
+  to skipped: judge a block-prompt change on the whole noise set.
+- A list's title is shown only on a question (like a note on trial) and carries no field names: with "(name, job,
+  city)" in the title and titles on work prompts, 10 of 16 work prompts with the lists' words got a title; without,
+  3/16 (2 of them this project's config, wanted). `eval.lists`: similar-word work prompts given list text 3/72, all
+  "who is logged in right now?". Known miss: a command asking for the list ("List my students") is not a question.
+- Haiku sees a long block by its first 20 and last 5 lines (160 chars each; whole up to 30 lines): same results on
+  `eval.lists` (15/16, recall 50/50, noise 0) as with 40 + 10. A one-block call: ~1,500 tokens, ~60 output.

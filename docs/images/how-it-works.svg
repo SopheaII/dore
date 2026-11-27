@@ -1,0 +1,286 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1200 1380" width="1200" height="1380" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-weight="700">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#111"/>
+    </marker>
+    <path id="spark" d="M0 -14 C2 -4 4 -2 14 0 C4 2 2 4 0 14 C-2 4 -4 2 -14 0 C-4 -2 -2 -4 0 -14Z"/>
+    <symbol id="user" viewBox="0 0 80 80">
+      <path d="M16 72 Q16 46 40 46 Q64 46 64 72Z" fill="#5b8def" stroke="#111" stroke-width="3"/>
+      <circle cx="40" cy="26" r="14" fill="#f6c89f" stroke="#111" stroke-width="3"/>
+      <path d="M26 24 Q26 8 40 8 Q54 8 54 24 Q48 16 40 16 Q32 16 26 24Z" fill="#3a3a46" stroke="#111" stroke-width="3" stroke-linejoin="round"/>
+      <circle cx="34" cy="27" r="4" fill="#fff" stroke="#111" stroke-width="2"/>
+      <circle cx="46" cy="27" r="4" fill="#fff" stroke="#111" stroke-width="2"/>
+      <line x1="38" y1="27" x2="42" y2="27" stroke="#111" stroke-width="2"/>
+      <rect x="18" y="54" width="44" height="22" rx="3" fill="#4a4a58" stroke="#111" stroke-width="3"/>
+      <circle cx="40" cy="65" r="4" fill="#fff"/>
+    </symbol>
+    <symbol id="db" viewBox="0 0 70 80">
+      <path d="M7 14 V64 A28 10 0 0 0 63 64 V14" fill="#f5a623" stroke="#111" stroke-width="3"/>
+      <path d="M7 31 A28 10 0 0 0 63 31 M7 48 A28 10 0 0 0 63 48" fill="none" stroke="#111" stroke-width="3"/>
+      <ellipse cx="35" cy="14" rx="28" ry="10" fill="#ffd25e" stroke="#111" stroke-width="3"/>
+    </symbol>
+    <g id="claude">
+      <circle r="17" fill="#d97757" stroke="#111" stroke-width="2.5"/>
+      <use href="#spark" xlink:href="#spark" transform="scale(0.75)" fill="#fff"/>
+    </g>
+  </defs>
+
+  <rect width="1200" height="1380" fill="#fff"/>
+
+  <!-- Title -->
+  <rect x="30" y="28" width="9" height="58" fill="#3dbf7a"/>
+  <text x="54" y="76" font-size="46" fill="#111">How</text>
+  <rect x="160" y="22" width="330" height="66" rx="12" fill="#d97757"/>
+  <text x="176" y="76" font-size="46" fill="#fff" textLength="298" lengthAdjust="spacingAndGlyphs">dore memory</text>
+  <text x="506" y="76" font-size="46" fill="#111">works</text>
+  <text x="1170" y="72" font-size="18" fill="#666" text-anchor="end" font-weight="600">~13 ms per message</text>
+
+  <!-- Row 1: Learn -->
+  <g transform="translate(0,115)">
+    <rect x="30" y="0" width="240" height="235" rx="14" fill="#fff" stroke="#111" stroke-width="3"/>
+    <circle cx="150" cy="85" r="52" fill="#4cc97a" stroke="#111" stroke-width="3"/>
+    <circle cx="135" cy="48" r="4" fill="#fff" stroke="#111" stroke-width="2"/>
+    <circle cx="150" cy="44" r="4" fill="#fff" stroke="#111" stroke-width="2"/>
+    <circle cx="165" cy="48" r="4" fill="#fff" stroke="#111" stroke-width="2"/>
+    <path d="M118 62 H182 L158 94 V122 L142 130 V94 Z" fill="#ffd25e" stroke="#111" stroke-width="3" stroke-linejoin="round"/>
+    <text x="150" y="185" font-size="24" text-anchor="middle" fill="#111">Learn</text>
+
+    <rect x="285" y="0" width="885" height="235" rx="14" fill="#fff" stroke="#111" stroke-width="3"/>
+    <use href="#user" xlink:href="#user" x="300" y="54" width="80" height="80"/>
+    <line x1="388" y1="94" x2="470" y2="94" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="398" cy="116" r="10" fill="#111"/><text x="398" y="121" font-size="13" fill="#fff" text-anchor="middle">1</text>
+    <text x="412" y="121" font-size="13" fill="#111">Message</text>
+
+    <rect x="475" y="49" width="170" height="90" rx="10" fill="#b5f2d6" stroke="#34b37a" stroke-width="2.5"/>
+    <path d="M487 74 H527 L512 94 V112 L502 118 V94 Z" fill="#ffd25e" stroke="#111" stroke-width="2.5" stroke-linejoin="round"/>
+    <text x="592" y="88" font-size="17" text-anchor="middle" fill="#111">dore hook</text>
+    <text x="592" y="110" font-size="12" text-anchor="middle" fill="#333" font-weight="600">grammar check</text>
+
+    <path d="M645 94 H697 M670 94 V36 H697 M670 94 V152 H697" fill="none" stroke="#111" stroke-width="2.5"/>
+    <path d="M690 36 H697" fill="none" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <path d="M690 94 H697" fill="none" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <path d="M690 152 H697" fill="none" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="656" cy="70" r="10" fill="#111"/><text x="656" y="75" font-size="13" fill="#fff" text-anchor="middle">2</text>
+
+    <rect x="700" y="14" width="110" height="44" rx="8" fill="#fde0b8" stroke="#c0843a" stroke-width="2.5"/>
+    <text x="755" y="42" font-size="16" text-anchor="middle" fill="#111">Fact</text>
+    <rect x="700" y="72" width="110" height="44" rx="8" fill="#b3c9f5" stroke="#4466cc" stroke-width="2.5"/>
+    <text x="755" y="100" font-size="16" text-anchor="middle" fill="#111">Rule</text>
+    <rect x="700" y="130" width="110" height="44" rx="8" fill="#f7b3c6" stroke="#d64f7a" stroke-width="2.5"/>
+    <text x="755" y="158" font-size="16" text-anchor="middle" fill="#111">Skip</text>
+    <text x="755" y="194" font-size="12" text-anchor="middle" fill="#555" font-weight="600">questions, requests</text>
+
+    <path d="M810 36 C832 36 832 62 846 66" fill="none" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <path d="M810 94 C832 94 832 92 846 90" fill="none" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <use href="#db" xlink:href="#db" x="850" y="40" width="70" height="80"/>
+    <circle cx="862" cy="142" r="10" fill="#111"/><text x="862" y="147" font-size="13" fill="#fff" text-anchor="middle">3</text>
+    <text x="876" y="147" font-size="14" fill="#111">Saved</text>
+    <text x="885" y="166" font-size="11" text-anchor="middle" fill="#555" font-weight="600">on your laptop</text>
+
+    <line x1="940" y1="14" x2="940" y2="221" stroke="#999" stroke-width="2" stroke-dasharray="6 6"/>
+    <text font-size="17" text-anchor="middle" fill="#111">
+      <tspan x="1055" y="82">Reads every message</tspan>
+      <tspan x="1055" y="106">before Claude. Keeps</tspan>
+      <tspan x="1055" y="130">facts and rules, skips</tspan>
+      <tspan x="1055" y="154">the rest.</tspan>
+    </text>
+  </g>
+
+  <!-- Row 2: Recall -->
+  <g transform="translate(0,365)">
+    <rect x="30" y="0" width="240" height="235" rx="14" fill="#fff" stroke="#111" stroke-width="3"/>
+    <line x1="167" y1="102" x2="195" y2="130" stroke="#111" stroke-width="20" stroke-linecap="round"/>
+    <line x1="167" y1="102" x2="195" y2="130" stroke="#f5a623" stroke-width="13" stroke-linecap="round"/>
+    <circle cx="140" cy="75" r="38" fill="#cfe0ff" stroke="#111" stroke-width="4"/>
+    <path d="M122 64 H158 M122 76 H158 M122 88 H146" stroke="#4466cc" stroke-width="4" stroke-linecap="round"/>
+    <text x="150" y="185" font-size="24" text-anchor="middle" fill="#111">Recall</text>
+
+    <rect x="285" y="0" width="885" height="235" rx="14" fill="#fff" stroke="#111" stroke-width="3"/>
+    <use href="#user" xlink:href="#user" x="300" y="14" width="80" height="80"/>
+    <line x1="388" y1="54" x2="470" y2="54" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="398" cy="76" r="10" fill="#111"/><text x="398" y="81" font-size="13" fill="#fff" text-anchor="middle">1</text>
+    <text x="412" y="81" font-size="13" fill="#111">Question</text>
+
+    <rect x="475" y="14" width="170" height="80" rx="10" fill="#b5f2d6" stroke="#34b37a" stroke-width="2.5"/>
+    <circle cx="502" cy="49" r="11" fill="#fff" stroke="#111" stroke-width="2.5"/>
+    <line x1="510" y1="57" x2="519" y2="66" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+    <text x="588" y="49" font-size="17" text-anchor="middle" fill="#111">dore hook</text>
+    <text x="588" y="71" font-size="14" text-anchor="middle" fill="#333" font-weight="600">search notes</text>
+
+    <line x1="645" y1="54" x2="690" y2="54" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="667" cy="34" r="10" fill="#111"/><text x="667" y="39" font-size="13" fill="#fff" text-anchor="middle">2</text>
+    <use href="#db" xlink:href="#db" x="695" y="14" width="70" height="80"/>
+
+    <line x1="768" y1="54" x2="810" y2="54" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="789" cy="34" r="10" fill="#111"/><text x="789" y="39" font-size="13" fill="#fff" text-anchor="middle">3</text>
+    <rect x="815" y="18" width="105" height="74" rx="8" fill="#fde0b8" stroke="#c0843a" stroke-width="2.5"/>
+    <text x="867" y="38" font-size="13" text-anchor="middle" fill="#111">Matching</text>
+    <path d="M828 52 H906 M828 64 H906 M828 76 H880" stroke="#d9a35f" stroke-width="3.5" stroke-linecap="round"/>
+
+    <path d="M867 92 V165 H774" fill="none" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="884" cy="128" r="10" fill="#111"/><text x="884" y="133" font-size="13" fill="#fff" text-anchor="middle">4</text>
+    <rect x="560" y="130" width="210" height="70" rx="10" fill="#b3c9f5" stroke="#4466cc" stroke-width="2.5"/>
+    <use href="#claude" xlink:href="#claude" transform="translate(598,165)"/>
+    <text x="682" y="160" font-size="17" text-anchor="middle" fill="#111">Claude</text>
+    <text x="682" y="182" font-size="14" text-anchor="middle" fill="#333" font-weight="600">answers</text>
+
+    <path d="M558 165 C410 165 345 160 342 102" fill="none" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="420" cy="134" r="10" fill="#111"/><text x="420" y="139" font-size="13" fill="#fff" text-anchor="middle">5</text>
+    <text x="434" y="139" font-size="14" fill="#111">Answer</text>
+
+    <line x1="940" y1="14" x2="940" y2="221" stroke="#999" stroke-width="2" stroke-dasharray="6 6"/>
+    <text font-size="17" text-anchor="middle" fill="#111">
+      <tspan x="1055" y="82">Adds only the notes</tspan>
+      <tspan x="1055" y="106">that match. Nothing</tspan>
+      <tspan x="1055" y="130">matches → nothing</tspan>
+      <tspan x="1055" y="154">added.</tspan>
+    </text>
+  </g>
+
+  <!-- Row 3: Update -->
+  <g transform="translate(0,615)">
+    <rect x="30" y="0" width="240" height="235" rx="14" fill="#fff" stroke="#111" stroke-width="3"/>
+    <circle cx="150" cy="85" r="52" fill="#c8f08f" stroke="#111" stroke-width="3"/>
+    <path d="M121 82 A30 30 0 0 1 170 63" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round" marker-end="url(#ah)"/>
+    <path d="M179 88 A30 30 0 0 1 130 107" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round" marker-end="url(#ah)"/>
+    <text x="150" y="185" font-size="24" text-anchor="middle" fill="#111">Update</text>
+
+    <rect x="285" y="0" width="885" height="235" rx="14" fill="#fff" stroke="#111" stroke-width="3"/>
+    <use href="#user" xlink:href="#user" x="300" y="14" width="80" height="80"/>
+    <line x1="388" y1="54" x2="525" y2="54" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="398" cy="76" r="10" fill="#111"/><text x="398" y="81" font-size="13" fill="#fff" text-anchor="middle">1</text>
+    <text x="412" y="81" font-size="13" fill="#111">“Port is now 9443”</text>
+
+    <rect x="530" y="14" width="160" height="80" rx="10" fill="#b5f2d6" stroke="#34b37a" stroke-width="2.5"/>
+    <text x="610" y="49" font-size="17" text-anchor="middle" fill="#111">dore hook</text>
+    <text x="610" y="71" font-size="14" text-anchor="middle" fill="#333" font-weight="600">newer wins</text>
+
+    <line x1="690" y1="54" x2="745" y2="54" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="717" cy="34" r="10" fill="#111"/><text x="717" y="39" font-size="13" fill="#fff" text-anchor="middle">2</text>
+    <rect x="750" y="14" width="170" height="80" rx="8" fill="#b5f2d6" stroke="#34b37a" stroke-width="2.5"/>
+    <text x="835" y="49" font-size="16" text-anchor="middle" fill="#111">Port is 9443</text>
+    <text x="835" y="71" font-size="13" text-anchor="middle" fill="#1f8a55">shown ✓</text>
+
+    <line x1="835" y1="96" x2="835" y2="132" stroke="#111" stroke-width="2.5" stroke-dasharray="5 4" marker-end="url(#a)"/>
+    <circle cx="856" cy="114" r="10" fill="#111"/><text x="856" y="119" font-size="13" fill="#fff" text-anchor="middle">3</text>
+    <text x="870" y="119" font-size="13" fill="#111">replaces</text>
+
+    <text x="305" y="177" font-size="13" fill="#666" font-weight="600">Earlier: “Port is 8443”</text>
+    <line x1="470" y1="172" x2="745" y2="172" stroke="#999" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#a)"/>
+    <rect x="750" y="136" width="170" height="74" rx="8" fill="#e6e6e6" stroke="#9a9a9a" stroke-width="2.5"/>
+    <text x="835" y="168" font-size="16" text-anchor="middle" fill="#777">Port is 8443</text>
+    <line x1="784" y1="163" x2="886" y2="163" stroke="#777" stroke-width="2"/>
+    <text x="835" y="191" font-size="13" text-anchor="middle" fill="#777">hidden, kept</text>
+
+    <line x1="940" y1="14" x2="940" y2="221" stroke="#999" stroke-width="2" stroke-dasharray="6 6"/>
+    <text font-size="17" text-anchor="middle" fill="#111">
+      <tspan x="1055" y="82">A new value replaces</tspan>
+      <tspan x="1055" y="106">the old one. You beat</tspan>
+      <tspan x="1055" y="130">the AI. Nothing is</tspan>
+      <tspan x="1055" y="154">deleted.</tspan>
+    </text>
+  </g>
+
+  <!-- Row 4: Rules like habits -->
+  <g transform="translate(0,865)">
+    <rect x="30" y="0" width="240" height="235" rx="14" fill="#fff" stroke="#111" stroke-width="3"/>
+    <rect x="105" y="105" width="20" height="30" fill="#b3c9f5" stroke="#111" stroke-width="3"/>
+    <rect x="130" y="85" width="20" height="50" fill="#b3c9f5" stroke="#111" stroke-width="3"/>
+    <rect x="155" y="65" width="20" height="70" fill="#b3c9f5" stroke="#111" stroke-width="3"/>
+    <rect x="180" y="45" width="20" height="90" fill="#b3c9f5" stroke="#111" stroke-width="3"/>
+    <line x1="100" y1="92" x2="188" y2="30" stroke="#e05a8a" stroke-width="6" stroke-linecap="round" marker-end="url(#ah)"/>
+    <text font-size="24" text-anchor="middle" fill="#111"><tspan x="150" y="180">Rules like</tspan><tspan x="150" y="208">Habits</tspan></text>
+
+    <rect x="285" y="0" width="885" height="235" rx="14" fill="#fff" stroke="#111" stroke-width="3"/>
+    <rect x="300" y="20" width="150" height="70" rx="8" fill="#b3c9f5" stroke="#4466cc" stroke-width="2.5"/>
+    <text x="375" y="50" font-size="15" text-anchor="middle" fill="#111">Never use print</text>
+    <text x="375" y="72" font-size="12" text-anchor="middle" fill="#333" font-weight="600">rule, on trial</text>
+
+    <line x1="450" y1="55" x2="538" y2="55" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="463" cy="35" r="10" fill="#111"/><text x="463" y="40" font-size="13" fill="#fff" text-anchor="middle">1</text>
+    <text x="477" y="40" font-size="13" fill="#111">Used</text>
+    <rect x="548" y="65" width="12" height="15" fill="#4cc97a" stroke="#111" stroke-width="2"/>
+    <rect x="566" y="55" width="12" height="25" fill="#4cc97a" stroke="#111" stroke-width="2"/>
+    <rect x="584" y="45" width="12" height="35" fill="#4cc97a" stroke="#111" stroke-width="2"/>
+    <rect x="602" y="35" width="12" height="45" fill="#4cc97a" stroke="#111" stroke-width="2"/>
+    <text x="581" y="100" font-size="13" text-anchor="middle" fill="#1f8a55">stronger</text>
+
+    <line x1="625" y1="55" x2="690" y2="55" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="657" cy="35" r="10" fill="#111"/><text x="657" y="40" font-size="13" fill="#fff" text-anchor="middle">2</text>
+    <rect x="695" y="20" width="225" height="70" rx="10" fill="#b3c9f5" stroke="#4466cc" stroke-width="2.5"/>
+    <use href="#claude" xlink:href="#claude" transform="translate(728,55)"/>
+    <text x="826" y="50" font-size="16" text-anchor="middle" fill="#111">Starts each</text>
+    <text x="826" y="72" font-size="16" text-anchor="middle" fill="#111">new session</text>
+
+    <path d="M375 92 V172 H538" fill="none" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="400" cy="152" r="10" fill="#111"/><text x="400" y="157" font-size="13" fill="#fff" text-anchor="middle">3</text>
+    <text x="414" y="157" font-size="13" fill="#111">Unused</text>
+    <rect x="548" y="150" width="12" height="45" fill="#d4d4d4" stroke="#111" stroke-width="2"/>
+    <rect x="566" y="160" width="12" height="35" fill="#d4d4d4" stroke="#111" stroke-width="2"/>
+    <rect x="584" y="170" width="12" height="25" fill="#d4d4d4" stroke="#111" stroke-width="2"/>
+    <rect x="602" y="180" width="12" height="15" fill="#d4d4d4" stroke="#111" stroke-width="2"/>
+    <text x="581" y="215" font-size="13" text-anchor="middle" fill="#777">fades</text>
+
+    <line x1="625" y1="172" x2="690" y2="172" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="657" cy="152" r="10" fill="#111"/><text x="657" y="157" font-size="13" fill="#fff" text-anchor="middle">4</text>
+    <rect x="695" y="137" width="225" height="70" rx="10" fill="#e6e6e6" stroke="#9a9a9a" stroke-width="2.5"/>
+    <text x="807" y="167" font-size="16" text-anchor="middle" fill="#555">Faded</text>
+    <text x="807" y="189" font-size="12" text-anchor="middle" fill="#666" font-weight="600">back when a message matches</text>
+
+    <line x1="940" y1="14" x2="940" y2="221" stroke="#999" stroke-width="2" stroke-dasharray="6 6"/>
+    <text font-size="17" text-anchor="middle" fill="#111">
+      <tspan x="1055" y="82">Repeated or followed</tspan>
+      <tspan x="1055" y="106">rules get stronger;</tspan>
+      <tspan x="1055" y="130">unused ones fade.</tspan>
+      <tspan x="1055" y="154">No fixed limit.</tspan>
+    </text>
+  </g>
+
+  <!-- Row 5: Haiku review -->
+  <g transform="translate(0,1115)">
+    <rect x="30" y="0" width="240" height="235" rx="14" fill="#fff" stroke="#111" stroke-width="3"/>
+    <path d="M108 125 H192 A26 26 0 0 0 186 74 A36 36 0 0 0 118 78 A24 24 0 0 0 108 125 Z" fill="#cfe0ff" stroke="#111" stroke-width="3" stroke-linejoin="round"/>
+    <use href="#spark" xlink:href="#spark" transform="translate(152,100) scale(1.3)" fill="#d97757" stroke="#111" stroke-width="1.5"/>
+    <text font-size="24" text-anchor="middle" fill="#111"><tspan x="150" y="180">Haiku Review</tspan><tspan x="150" y="206" font-size="16" fill="#666">(optional)</tspan></text>
+
+    <rect x="285" y="0" width="885" height="235" rx="14" fill="#fff" stroke="#111" stroke-width="3"/>
+    <use href="#user" xlink:href="#user" x="300" y="65" width="80" height="80"/>
+    <line x1="388" y1="105" x2="515" y2="105" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="398" cy="127" r="10" fill="#111"/><text x="398" y="132" font-size="13" fill="#fff" text-anchor="middle">1</text>
+    <text x="412" y="132" font-size="13" fill="#111">Session ends</text>
+
+    <rect x="520" y="60" width="120" height="90" rx="8" fill="#fde0b8" stroke="#c0843a" stroke-width="2.5"/>
+    <text x="580" y="82" font-size="13" text-anchor="middle" fill="#111">What you typed</text>
+    <path d="M534 98 H626 M534 112 H626 M534 126 H600" stroke="#d9a35f" stroke-width="3.5" stroke-linecap="round"/>
+    <text x="580" y="170" font-size="12" text-anchor="middle" fill="#555" font-weight="600">not code or replies</text>
+
+    <line x1="640" y1="105" x2="690" y2="105" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="665" cy="85" r="10" fill="#111"/><text x="665" y="90" font-size="13" fill="#fff" text-anchor="middle">2</text>
+    <rect x="695" y="65" width="110" height="80" rx="10" fill="#b3c9f5" stroke="#4466cc" stroke-width="2.5"/>
+    <path d="M727 102 H773 A13 13 0 0 0 770 77 A18 18 0 0 0 734 79 A12 12 0 0 0 727 102 Z" fill="#fff" stroke="#111" stroke-width="2.5" stroke-linejoin="round"/>
+    <text x="750" y="130" font-size="16" text-anchor="middle" fill="#111">Haiku</text>
+
+    <path d="M805 105 H832 M818 105 V50 H832 M818 105 V160 H832" fill="none" stroke="#111" stroke-width="2.5"/>
+    <path d="M826 50 H832" fill="none" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <path d="M826 105 H832" fill="none" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <path d="M826 160 H832" fill="none" stroke="#111" stroke-width="2.5" marker-end="url(#a)"/>
+    <circle cx="818" cy="190" r="10" fill="#111"/><text x="818" y="195" font-size="13" fill="#fff" text-anchor="middle">3</text>
+    <rect x="835" y="30" width="85" height="40" rx="8" fill="#b5f2d6" stroke="#34b37a" stroke-width="2.5"/>
+    <text x="877" y="56" font-size="15" text-anchor="middle" fill="#111">Keep</text>
+    <rect x="835" y="85" width="85" height="40" rx="8" fill="#b3c9f5" stroke="#4466cc" stroke-width="2.5"/>
+    <text x="877" y="111" font-size="15" text-anchor="middle" fill="#111">Merge</text>
+    <rect x="835" y="140" width="85" height="40" rx="8" fill="#f7b3c6" stroke="#d64f7a" stroke-width="2.5"/>
+    <text x="877" y="166" font-size="15" text-anchor="middle" fill="#111">Noise</text>
+
+    <line x1="940" y1="14" x2="940" y2="221" stroke="#999" stroke-width="2" stroke-dasharray="6 6"/>
+    <text font-size="17" text-anchor="middle" fill="#111">
+      <tspan x="1055" y="82">One small batch at</tspan>
+      <tspan x="1055" y="106">a session end checks</tspan>
+      <tspan x="1055" y="130">the notes: keep, merge</tspan>
+      <tspan x="1055" y="154">or archive.</tspan>
+    </text>
+  </g>
+</svg>

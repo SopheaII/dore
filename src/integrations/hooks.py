@@ -1,6 +1,7 @@
 """Claude Code hooks: add only the notes a prompt needs, and learn at zero Claude tokens.
 
 `dore-hook prompt` (UserPromptSubmit) and `dore-hook end` (SessionEnd). Nothing is added when nothing matches.
+`dore-hook recall <id>` prints every entry of a list (a group note) for Claude, only when it asks.
 """
 
 from __future__ import annotations
@@ -17,8 +18,8 @@ from dore.config import Config
 from dore.learn.grammar import asks, tells, topic_key
 from dore.learn.statements import (ASKS_START, CORRECTION_LEAD, IMPLICIT_FEEDBACK, PERSONAL, QUESTION_START,
                                    REASK_SIMILARITY,
-                                   REQ_MAX_CHARS, episode_sentences, message_facts, requirement_text, scope_for,
-                                   user_facts)
+                                   REQ_MAX_CHARS, episode_sentences, list_group, message_facts, requirement_text,
+                                   scope_for, user_facts)
 from dore.integrations import update
 from dore.integrations.project import display_name, project_of
 from dore.memory import SEARCHABLE_SQL, MemoryStore, episodes, on_trial, replaces, same_frame
@@ -166,7 +167,7 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
     hits = store.search(prompt[:2000], k=MAX_NOTES + len(shown), min_similarity=STRONG,
                         project=project or None, touch=False)
     asked = _asks(prompt)
-    hits = [m for m in hits if _showable(m) and (asked or not on_trial(m))]
+    hits = [m for m in hits if _showable(m) and (asked or not (on_trial(m) or m.kind == "group"))]
     own = [m for m in hits if m.project == project and project]
     hits = [m for m in hits if m.project or not any(replaces(m.content, k.content) or replaces(k.content, m.content)
                                                     for k in own)]
@@ -177,12 +178,33 @@ def prompt_context(store: MemoryStore, prompt: str, project: str, state: _State)
             m.created > k.created and float(store._vector(m.id) @ store._vector(k.id)) >= SAME_THING for k in near)]
         hits = sorted(near + newer, key=lambda m: -m.created if m in newer else 0)  # newer first
     notes = [m for m in hits if m.id not in shown][:MAX_NOTES]
+    heads = store.get_many(list({m.group_id for m in notes if m.group_id}))
+    in_group: dict[int, int] = {}
     for m in notes:
         label = f" (from project {display_name(m.project)})" if m.project not in (project, "") else ""
         if m.kind == "requirement":
             label += " (your earlier request)" if m.trust != "verified" else " (your repeated request)"
-        cands.append((m.id, _line(m.id, m.content, label, m.created,
-                                  limit=REQ_MAX_CHARS + 1 if m.kind == "requirement" else MAX_CHARS), True))
+        text, limit = m.content, REQ_MAX_CHARS + 1 if m.kind == "requirement" else MAX_CHARS
+        if m.kind == "group":
+            if any(x.group_id == m.id for x in notes) or not (size := store.group_size(m.id)):
+                continue  # its entries below say it, or it has none left
+            text = f"{m.content} ({size} entries, #{m.id})"
+            in_group.setdefault(m.id, 0)
+            limit += len(text)
+        elif (head := heads.get(m.group_id)) is not None:
+            in_group[head.id] = in_group.get(head.id, 0) + 1
+            if in_group[head.id] > 1:  # the title once per list
+                cands.append((m.id, "  " + _line(m.id, m.content, label, limit=limit), True))
+                continue
+            text = f"{head.content}: {m.content}"
+            limit += len(head.content)
+        cands.append((m.id, _line(m.id, text, label, m.created, limit=limit), True))
+    for h, n in in_group.items():  # after the group's last entry shown
+        if n and (more := store.group_size(h) - n) > 0:
+            at = max(k for k, (mid, _, _) in enumerate(cands) if mid in {x.id for x in notes if x.group_id == h})
+            cands.insert(at + 1, (0, f"  +{more} more in #{h}", False))
+    if any(store.group_size(h) > n for h, n in in_group.items()):  # how to get them, once
+        cands.append((0, f"(all entries of a list: {recall_command(0).rsplit(' ', 1)[0]} <#>)", False))
     vec = getattr(store, "last_query_vector", None)
     # Rules in mind: at the session start every proven rule strong enough (`rules_in_mind`), the ones closest to the
     # first prompt first; those that did not fit come with the next prompts. No fixed number of rules.
@@ -564,6 +586,11 @@ def learn_message(store: MemoryStore, msg: str, project: str, echo: str = "",
     `session_ids`: hidden notes this session already saved (a repeat inside one session doesn't make
     them lasting); it grows with this message's."""
     seen = session_ids if session_ids is not None else set()
+    if (group := list_group(msg)) and len(items := not_echoed(group[1], echo)) >= 2:
+        ids = store.add_group(group[0], items, project=scope_for(group[0], project), session=session)
+        store.mark_said_in(ids, project)
+        seen |= set(ids)
+        return ids
     facts = not_echoed(message_facts(msg, similar_fn(store)), echo)
     ids = save_facts(store, facts, project)
     # Said again in the same session is the same moment, not lasting evidence: the repeat doesn't count
@@ -603,11 +630,12 @@ def mark_provisional(store: MemoryStore, note_ids: list[int], episode_ids: list[
 
 def queue_message(store: MemoryStore, msg: str, project: str, echo: str = "", session: str = "",
                   count_repeats: bool = True) -> list[int]:
-    """Haiku learner: keep the message's sentences in raw memory, where they wait for the next batch
-    (`integrations.learner`). Nothing is judged here: no model, ~0.1 ms. The same sentence again, once it became a
-    note, counts as said again at once."""
-    from dore.learn.consolidate import sentences
-    ids = episodes.add(store, not_echoed(sentences(msg), echo), project, session)
+    """Haiku learner: keep the message's sentences (a long message whole) in raw memory, where they wait for the
+    next batch (`integrations.learner`). Nothing is judged here: no model, ~0.1 ms. The same sentence again, once it
+    became a note, counts as said again at once."""
+    from dore.learn.consolidate import RAW_CHARS, is_block, sentences
+    said = [msg[:RAW_CHARS].strip()] if is_block(msg) else sentences(msg)  # a long message is judged whole
+    ids = episodes.add(store, not_echoed(said, echo), project, session)
     for eid in ids if count_repeats else ():  # the word rules count exact repeats when they run too
         row = store.db.execute("SELECT note_id FROM episodes WHERE id=?", (eid,)).fetchone()
         if row and row[0]:
@@ -704,6 +732,28 @@ def on_prompt(store: MemoryStore, prompt: str, project: str, state: _State, echo
     return text
 
 
+def recall_command(head: int) -> str:
+    exe = Path(sys.executable).with_name("dore-hook.exe" if os.name == "nt" else "dore-hook")
+    return f'"{exe}" recall {head}' if " " in str(exe) else f"{exe} recall {head}"
+
+
+def recall_text(store: MemoryStore, args: list) -> str:
+    """Every entry of the groups named (`dore-hook recall 41`): what Claude asks for when the lines shown were not
+    enough."""
+    out = []
+    for a in args:
+        a = str(a).lstrip("#")
+        g = int(a) if a.isdigit() else None
+        head = store.get_many([g]).get(g) if g is not None else None
+        if head is None or head.kind != "group":
+            out.append(f"dore: #{a} is not a list")
+            continue
+        items = store.group_items(g)
+        out.append(f"#{g} {head.content} ({len(items)} entries):")
+        out += [f"- {m.content}" for m in items]
+    return "\n".join(out) or "usage: dore-hook recall <id>"
+
+
 def open_store(cfg: Config) -> MemoryStore:
     from dore.memory.embed import FastEmbedder
     store = MemoryStore(cfg.db_path, cfg.index_path,
@@ -735,6 +785,8 @@ def remark_instructions(store: MemoryStore, limit: int | None = None) -> int:
 
 def run_event(store: MemoryStore, cfg: Config, event: str, data: dict) -> str:
     """Handle one hook event; returns the text to print ("" = add nothing)."""
+    if event == "recall":
+        return recall_text(store, data.get("ids") or [])
     project = resolve_project(store, data.get("cwd"), data.get("project_dir"))
     if event == "prompt":
         state = _State(cfg.data_dir, str(data.get("session_id", "")))
@@ -768,14 +820,13 @@ def consolidate(store: MemoryStore, limit: int = 64, learn: str = "rules", wait:
     episodes a vector so a later question can recall them, and judge again those not judged with
     today's learning rules, so a fixed rule also learns what was said before. A fact learned this way
     keeps the date it was said (an older date never replaces a newer note). Small batches: call again
-    until it returns zeros. No Claude tokens. With the Haiku learner: a batch when one is due (`integrations.learner`),
-    in a thread unless `wait`; the word rules don't run."""
+    until it returns zeros. No Claude tokens. With the Haiku learner: at SessionEnd (`wait`) the batches due
+    (`integrations.learner`), never while idle; the word rules don't run."""
     if learn == "haiku":
         from dore.integrations import learner
-        if wait:  # SessionEnd: this session is over
-            learner.run_once(store, ended=True)
-        else:
-            learner.run_in_background(store)
+        for _ in range(learner.END_BATCHES if wait else 0):
+            if learner.run_once(store, ended=True) is None:
+                break
         return {}
     embedded = episodes.embed_pending(store, limit)
     remarked = remark_instructions(store, limit)

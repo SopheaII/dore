@@ -169,6 +169,150 @@ def confirm_updates(verdicts: dict[int, list[Verdict]], items: list[Item], ask) 
     return verdicts, usage
 
 
+BLOCK_SYSTEM = """You decide what long messages a developer sent to a coding assistant should leave in long-term \
+memory. Each block is one message: a list, a table, a document, a config, a log, code or a long request, typed by \
+the user or pasted. Most are for the task at hand: skip them. Keep only what will still be true and useful in a \
+later session.
+
+Input: "[B] typed" or "[B] pasted, the user's words: ...", then its lines "B.N: line". "B.N-M: (not shown)" marks \
+lines of a long block left out.
+Answer with these lines only, no explanations, each starting with the block's own number (block 1 here):
+1 skip
+1 group user|project: <title> | lines: <line numbers and ranges, e.g. 2-11, 14>
+1 fact user|project: <note>
+1 rule user|project: <note> | when: <words> | not: <words>
+
+group: a list of lasting entries of one kind (people, servers, accounts, settings, endpoints). Title: what the \
+entries are and whose ("The user's friends"). lines: the entry lines only, not headings; a range may cover lines \
+not shown.
+fact: a lasting fact in a block that is not such a list (a setting in a config the user says is theirs): one short \
+plain sentence with names and numbers exactly as written. rule: an instruction for all future work ("always", \
+"never", "from now on") or a lasting wish about how the assistant should work; when: 1-3 words seen in commands or \
+code when it applies; not: words that would break it. A block may give a group, facts and rules.
+Never keep passwords, API keys, tokens or private keys: leave those lines out.
+user: about the person (their life, people they know) or the whole team or company across projects. project: this \
+codebase, its servers, data and clients. If unsure: project.
+Skip errors, stack traces, build and test output, bugs or problems to fix, code to write or change, one-time tasks, \
+events and plans, and text given only to read, summarize, explain or translate. A list of those is not a group. If \
+unsure, skip."""
+
+SHOW_HEAD, SHOW_TAIL, SHOW_CHARS = 20, 5, 160  # lines of a block shown to Haiku: its start and end
+SHOW_ALL = 30  # a block this short is shown whole
+MIXED = "Some of the input is whole long messages (blocks), each starting with [number]. For those:\n\n"
+
+
+@dataclass
+class Block:
+    n: int
+    lines: list[str]
+    pasted: bool = False
+    words: str = ""  # the user's own words beside a paste
+
+
+@dataclass
+class BlockVerdict:
+    n: int
+    action: str  # skip | group | fact | rule
+    scope: str = ""
+    title: str = ""
+    lines: list[int] = field(default_factory=list)
+    text: str = ""
+    when: list[str] = field(default_factory=list)
+    forbid: list[str] = field(default_factory=list)
+
+
+def block_text(blocks: list[Block]) -> str:
+    """Blocks as Haiku reads them: a long block by its start and end, a line said again only once."""
+    out = []
+    for b in blocks:
+        out.append(f"[{b.n}] " + (f"pasted, the user's words: {_one_line(b.words)[:300] or 'none'}" if b.pasted
+                                  else "typed"))
+        n, seen = len(b.lines), set()
+        shown = range(n) if n <= SHOW_ALL else [*range(SHOW_HEAD), *range(n - SHOW_TAIL, n)]
+        for k in shown:
+            if n > SHOW_ALL and k == n - SHOW_TAIL:
+                out.append(f"{b.n}.{SHOW_HEAD + 1}-{n - SHOW_TAIL}: (not shown)")
+            line = _one_line(b.lines[k])[:SHOW_CHARS]
+            if line in seen:
+                continue
+            seen.add(line)
+            out.append(f"{b.n}.{k + 1}: {line}")
+    return "\n".join(out)
+
+
+_BLOCK_LINE = re.compile(r"^\s*\[?(\d+)\]?\s*[:.)-]?\s*(skip|group|fact|rule)\b\s*(.*)$", re.I)
+
+
+def _numbers(spec: str, n: int) -> list[int]:
+    out = []
+    spec = re.sub(r"\b\d+\.(\d+)", r"\1", spec)  # "1.2-1.11": block 1, lines 2 to 11
+    for a, b in re.findall(r"(\d+)(?:\s*-\s*(\d+))?", spec):
+        lo, hi = int(a), int(b or a)
+        out += [k for k in range(lo, hi + 1) if 1 <= k <= n]
+    return list(dict.fromkeys(out))
+
+
+def parse_blocks(answer: str, blocks: list[Block]) -> dict[int, list[BlockVerdict]]:
+    sizes = {b.n: len(b.lines) for b in blocks}
+    out: dict[int, list[BlockVerdict]] = {}
+    for raw in answer.splitlines():
+        m = _BLOCK_LINE.match(raw)
+        if not m or int(m.group(1)) not in sizes:
+            continue
+        n, action, rest = int(m.group(1)), m.group(2).lower(), m.group(3).strip()
+        v = BlockVerdict(n, action)
+        rest = re.sub(r"^(user|project)\s*\|\s*\w+\s*:", r"\1:", rest, flags=re.I)  # "user|team:" -> "user:"
+        if action != "skip":
+            s = _SCOPED.match(rest)
+            if not s or s.group(1):
+                continue
+            v.scope = s.group(2).lower()
+            parts = [p.strip() for p in s.group(3).split("|")]
+            if action == "group":
+                spec = next((p for p in parts if p.lower().startswith("lines")), "")
+                v.title = parts[0].strip(" .")
+                v.lines = _numbers(spec.partition(":")[2], sizes[n])
+                if not v.title or not v.lines:
+                    continue
+            else:
+                v.text = parts[0].strip(" .") + "."
+                v.text = v.text[:1].upper() + v.text[1:]
+                for p in parts[1:]:
+                    key, _, words = p.partition(":")
+                    ws = [w.strip() for w in words.split(",") if w.strip()]
+                    if key.strip().lower() == "when":
+                        v.when = ws
+                    elif key.strip().lower() == "not":
+                        v.forbid = ws
+        out.setdefault(n, []).append(v)
+    return out
+
+
+def judge_all(items: list[Item], blocks: list[Block], ask) -> tuple[dict, dict, dict]:
+    """Sentences and blocks in one call (each call costs ~1k tokens before its content), plus the confirming call when
+    a sentence proposed an update: (sentence verdicts, block verdicts, usage). Blocks are numbered after the
+    sentences."""
+    if not blocks:
+        verdicts, usage = judge(items, ask)
+        if items and not verdicts:  # an apology or an error worded as a reply: not an answer
+            raise JudgeError("failed", "no verdict in the answer")
+        return verdicts, {}, usage
+    t = time.time()
+    system = BLOCK_SYSTEM if not items else SYSTEM + "\n\n" + MIXED + BLOCK_SYSTEM
+    answer, usage = ask("\n".join(x for x in (batch_text(items), block_text(blocks)) if x), system)
+    blocks_said = parse_blocks(answer, blocks)
+    if not blocks_said and not parse(answer, items):
+        raise JudgeError("failed", "no verdict in the answer")
+    verdicts, more = confirm_updates(parse(answer, items), items, ask) if items else ({}, None)
+    usage = dict(usage)
+    if more:
+        for k in ("input", "output", "usd"):
+            usage[k] = usage.get(k, 0) + more.get(k, 0)
+        usage["calls"] = 2
+    usage.setdefault("ms", int((time.time() - t) * 1000))
+    return verdicts, blocks_said, usage
+
+
 def _limit_reset(text: str) -> float | None:
     m = re.search(r"\|(\d{9,11})\b", text)  # "...usage limit reached|1700000000"
     return float(m.group(1)) if m else None

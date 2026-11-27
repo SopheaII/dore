@@ -182,6 +182,58 @@ def message_facts(msg: str, similar=None) -> list[str]:
     return found if len(found) <= MAX_MSG_FACTS else []
 
 
+PASTE = re.compile(r"<pasted_content\b[^>]*>(.*?)</pasted_content\b[^>]*>", re.S | re.I)
+BULLET = re.compile(r"^\s*(?:[-*•●◦▪]|\d+[.)])\s+")
+LEAD_WORDS = 15
+ITEM_CHARS = 300
+
+
+def message_parts(msg: str) -> tuple[str, list[str]]:
+    """The words the user typed, and the blocks they pasted. Other tagged blocks (system text) are neither."""
+    pasted = [m.group(1).strip() for m in PASTE.finditer(msg)]
+    return TAG_BLOCK.sub(" ", msg).strip(), [p for p in pasted if p]
+
+
+def entry(line: str) -> str:
+    return BULLET.sub("", line).strip()[:ITEM_CHARS]
+
+
+def _code_like(line: str) -> bool:
+    return sum(line.count(c) for c in "{}[]();=<>$\\") / max(1, len(line)) > 0.08
+
+
+def _heading(text: str) -> bool:
+    """A title without a verb ("My friends", "Our servers")."""
+    from dore.learn.grammar import nlp
+    parser = nlp()
+    return parser is not None and not any(t.pos_ in ("VERB", "AUX") for t in parser(text))
+
+
+def list_group(msg: str) -> tuple[str, list[str]] | None:
+    """A list the user typed under their own lead line ("Here are my friends:" then one entry per line): (title,
+    entries). By shape and grammar: the lead ends with a colon and tells or names something (not a request or a
+    question); no entry is a request, a question or code. Pasted lists are judged by Haiku (`learn.consolidate`)."""
+    typed, _ = message_parts(msg)
+    raw = [ln for ln in typed.splitlines() if ln.strip()]
+    lines = [ln.strip() for ln in raw]
+    if len(lines) < 3 or typed.startswith("<") or COMPACT_SUMMARY.match(typed) or ECHO.search(typed):
+        return None
+    if any(re.match(r"\s{2,}|\t", ln) for ln in raw[1:]):  # indented: code or config
+        return None
+    lead = lines[0].lstrip("#").strip()
+    title = lead.rstrip(":").strip()
+    if not lead.endswith(":") or not title or len(title.split()) > LEAD_WORDS:
+        return None
+    from dore.learn.grammar import tells
+    if not (tells(title) or _heading(title)):
+        return None
+    items = [entry(ln) for ln in lines[1:]]
+    if any(t.endswith("?") or IMPERATIVE.match(t) or PLEASE.search(t) or _code_like(t) for t in items):
+        return None
+    items = [t for t in items if len(t.split()) >= 2]
+    return (title, items) if len(items) >= 2 else None
+
+
 # A question by its first word (question words and auxiliaries: closed classes), with or without "?".
 ASKS_START = re.compile(r"^(what|who|whom|whose|where|when|why|how|which|is|are|am|do|does|did|can|could|will|"
                         r"would|should|shall)\b", re.I)
